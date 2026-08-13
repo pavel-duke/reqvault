@@ -33,7 +33,8 @@ try {
             }
         }
     } | ConvertTo-Json -Depth 5
-    Set-Content -LiteralPath $temporaryConfig -Value $config -Encoding utf8
+    $utf8WithoutBom = New-Object System.Text.UTF8Encoding($false)
+    [System.IO.File]::WriteAllText($temporaryConfig, $config, $utf8WithoutBom)
 
     Push-Location $projectRoot
     try {
