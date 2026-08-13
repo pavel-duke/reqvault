@@ -21,24 +21,31 @@ body:
     validations:
       required: true
   - type: textarea
+    id: happened
+    attributes:
+      label: Что произошло?
+      description: Опишите ошибку и используйте только тестовые данные.
+    validations:
+      required: true
+  - type: textarea
     id: steps
     attributes:
-      label: Как воспроизвести
-      description: Перечислите точные действия и используйте только тестовые данные.
+      label: Как повторить?
+      description: Перечислите точные действия.
     validations:
       required: true
   - type: textarea
     id: expected
     attributes:
-      label: Ожидаемое поведение
+      label: Что ожидалось?
     validations:
       required: true
   - type: textarea
-    id: actual
+    id: logs
     attributes:
-      label: Фактическое поведение
-    validations:
-      required: true
+      label: Логи
+      description: Перед публикацией проверьте, что в логах нет токенов, паролей и других чувствительных данных.
+      render: shell
   - type: checkboxes
     id: secrets
     attributes:
