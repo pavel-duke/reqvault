@@ -8,6 +8,8 @@ use crate::{
     variables::{redact_secret_references, resolve_variables, secret_names},
 };
 
+const ALLOWED_METHODS: &[&str] = &["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"];
+
 pub fn analyze(request: &RequestFile, environment: Option<&EnvironmentFile>) -> SecurityReport {
     let variables = variables(environment);
     let resolved_url =
@@ -117,6 +119,11 @@ pub fn curl(
     request: &RequestFile,
     environment: Option<&EnvironmentFile>,
 ) -> Result<String, String> {
+    let method = request.method.trim().to_uppercase();
+    if !ALLOWED_METHODS.contains(&method.as_str()) {
+        return Err(format!("HTTP-метод {method} не поддерживается"));
+    }
+
     let variables = variables(environment);
     let safe = |value: &str| {
         resolve_variables(value, &variables)
@@ -141,11 +148,7 @@ pub fn curl(
         }
     }
 
-    let mut parts = vec![format!(
-        "curl -X {} {}",
-        request.method,
-        shell_quote(url.as_str())
-    )];
+    let mut parts = vec![format!("curl -X {} {}", method, shell_quote(url.as_str()))];
     for (name, value) in &request.headers {
         let safe_name = safe(name)?;
         let safe_value = if is_sensitive_header(&safe_name) {
@@ -299,5 +302,16 @@ mod tests {
         assert!(output.contains("***REDACTED***"));
         assert!(!output.contains("{{secret:"));
         assert!(!output.contains(TEST_SECRET));
+    }
+
+    #[test]
+    fn rejects_unsafe_method_in_curl() {
+        let request = RequestFile {
+            method: "GET; echo compromised".to_string(),
+            url: "https://api.example.test/users".to_string(),
+            ..RequestFile::default()
+        };
+
+        assert!(curl(&request, None).is_err());
     }
 }
