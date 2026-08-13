@@ -13,6 +13,7 @@ Tauri commands
   ├─ importer ─── Postman, OpenAPI и cURL
   ├─ guard ─────── правила отправки workspace
   ├─ history ──── локальные очищенные ответы
+  ├─ runner ───── assertions и запуск коллекций
   ├─ secrets ──── хранилище учётных данных ОС
   └─ security ─── анализ запроса и безопасный cURL
 ```
@@ -39,6 +40,8 @@ Frontend не читает workspace напрямую и не получает �
 - `importer/` — преобразование Postman/OpenAPI в модели ReqVault без переноса открытых credential;
 - `guard/` — проверка HTTPS, хоста, метода и секретов в URL перед отправкой;
 - `history/` — opt-in история очищенных ответов вне workspace;
+- `runner/` — последовательное выполнение запросов и проверка ответов;
+- `cli/` — разбор аргументов, консольный вывод и JSON-отчёт;
 - `secrets/` — работа с Windows Credential Manager, macOS Keychain или Linux Secret Service;
 - `security/` — Security Lens и генерация cURL;
 - `variables/` — разбор `{{NAME}}` и `{{secret:NAME}}`;
@@ -64,4 +67,4 @@ Frontend не читает workspace напрямую и не получает �
 
 ## Проверки
 
-Vitest проверяет преобразования frontend и отображение важных состояний. Rust-тесты проверяют workspace, пути, переменные, redaction, Security Lens, системное хранилище и реальную отправку запросов на локальный тестовый TCP-сервер.
+Vitest проверяет преобразования frontend и отображение важных состояний. Rust-тесты проверяют workspace, пути, переменные, redaction, Security Lens, assertions, CLI, системное хранилище и реальную отправку запросов на локальный тестовый TCP-сервер.

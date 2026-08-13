@@ -2,6 +2,21 @@
 
 Формат основан на [Keep a Changelog](https://keepachangelog.com/ru/1.1.0/), версия проекта следует [Semantic Versioning](https://semver.org/lang/ru/).
 
+## [0.4.0] — 2026-08-13
+
+### Добавлено
+
+- assertions для HTTP status, заголовков, JSON path, текста и времени ответа;
+- последовательный runner всех запросов или выбранной коллекции;
+- остановка после первой ошибки;
+- отдельный `reqvault-cli` с фильтрами окружения и коллекции;
+- компактный JSON-отчёт без тел ответов и секретов;
+- exit code `0`, `1` и `2` для использования в CI.
+
+### Изменено
+
+- HTTP 4xx/5xx всегда считается ошибкой collection run, даже если у запроса нет assertions.
+
 ## [0.3.0] — 2026-08-13
 
 ### Добавлено
@@ -57,3 +72,4 @@
 [0.1.0]: https://github.com/pavel-duke/reqvault/releases/tag/v0.1.0
 [0.2.0]: https://github.com/pavel-duke/reqvault/releases/tag/v0.2.0
 [0.3.0]: https://github.com/pavel-duke/reqvault/releases/tag/v0.3.0
+[0.4.0]: https://github.com/pavel-duke/reqvault/releases/tag/v0.4.0
