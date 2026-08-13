@@ -13,9 +13,12 @@ use crate::models::{
     WorkspaceConfig, WorkspaceSnapshot,
 };
 use crate::{
+    fs_utils::atomic_write,
     models::{AuthConfig, ProxyConfig},
     variables::is_exact_secret_reference,
 };
+
+pub mod reliability;
 
 const CONFIG_FILE: &str = "reqvault.yaml";
 const MAX_BUNDLE_SIZE: u64 = 20 * 1024 * 1024;
@@ -200,7 +203,7 @@ pub fn export_bundle(root: &Path, destination: &Path) -> Result<(), WorkspaceErr
         path: destination.display().to_string(),
         message: error.to_string(),
     })?;
-    fs::write(destination, content).map_err(|error| write_error(destination, error))
+    atomic_write(destination, content.as_bytes()).map_err(|error| write_error(destination, error))
 }
 
 pub fn import_bundle(source: &Path, target: &Path) -> Result<WorkspaceSnapshot, WorkspaceError> {
@@ -457,7 +460,7 @@ fn write_yaml<T: serde::Serialize>(path: &Path, value: &T) -> Result<(), Workspa
         path: path.display().to_string(),
         message: error.to_string(),
     })?;
-    fs::write(path, content).map_err(|error| write_error(path, error))
+    atomic_write(path, content.as_bytes()).map_err(|error| write_error(path, error))
 }
 
 fn path_to_slashes(path: &Path) -> String {

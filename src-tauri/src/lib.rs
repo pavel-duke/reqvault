@@ -1,5 +1,6 @@
 pub mod cli;
 mod commands;
+mod fs_utils;
 mod guard;
 mod history;
 mod http;
@@ -33,6 +34,11 @@ pub fn run() {
             commands::workspace::delete_request,
             commands::workspace::save_environment,
             commands::workspace::delete_environment,
+            commands::workspace::workspace_fingerprint,
+            commands::workspace::diagnose_workspace,
+            commands::workspace::preview_workspace_migration,
+            commands::workspace::migrate_workspace,
+            commands::workspace::rollback_workspace_migration,
             commands::http::send_request,
             commands::history::get_history_settings,
             commands::history::set_history_settings,

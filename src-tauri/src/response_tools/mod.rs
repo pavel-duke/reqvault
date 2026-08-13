@@ -6,6 +6,7 @@ use std::{
 use base64::{Engine as _, engine::general_purpose::STANDARD};
 
 use crate::{
+    fs_utils::atomic_write,
     models::{HttpResponse, RequestFile},
     redaction::redact_header,
     variables::redact_secret_references,
@@ -23,7 +24,7 @@ pub fn export(
         "har" => safe_har(request, response)?,
         _ => return Err("Неизвестный формат экспорта ответа".to_string()),
     };
-    fs::write(destination, bytes).map_err(|_| "Не удалось сохранить экспорт ответа".to_string())
+    atomic_write(destination, &bytes).map_err(|_| "Не удалось сохранить экспорт ответа".to_string())
 }
 
 pub fn save_fixture(

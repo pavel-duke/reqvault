@@ -2,9 +2,10 @@ use std::path::Path;
 
 use crate::{
     models::{
-        EnvironmentFile, EnvironmentSummary, RequestFile, RequestSummary, WorkspaceConfig,
-        WorkspaceSnapshot,
+        EnvironmentFile, EnvironmentSummary, MigrationPlan, MigrationResult, RequestFile,
+        RequestSummary, WorkspaceConfig, WorkspaceDiagnostics, WorkspaceSnapshot,
     },
+    secrets::{self, KeyringBackend},
     workspace,
 };
 
@@ -81,4 +82,46 @@ pub fn save_environment(
 pub fn delete_environment(workspace_path: String, relative_path: String) -> Result<(), String> {
     workspace::delete_environment(Path::new(&workspace_path), &relative_path)
         .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub fn workspace_fingerprint(workspace_path: String) -> Result<String, String> {
+    workspace::reliability::fingerprint(Path::new(&workspace_path))
+}
+
+#[tauri::command]
+pub fn diagnose_workspace(workspace_path: String) -> Result<WorkspaceDiagnostics, String> {
+    let root = Path::new(&workspace_path);
+    let available_secrets = workspace::load_config(root)
+        .ok()
+        .and_then(|config| KeyringBackend::new(&config.id).ok())
+        .and_then(|backend| secrets::list(&backend).ok())
+        .unwrap_or_default();
+    workspace::reliability::diagnose(root, &available_secrets)
+}
+
+#[tauri::command]
+pub fn preview_workspace_migration(workspace_path: String) -> Result<MigrationPlan, String> {
+    workspace::reliability::migration_plan(Path::new(&workspace_path))
+}
+
+#[tauri::command]
+pub fn migrate_workspace(workspace_path: String) -> Result<MigrationResult, String> {
+    let root = Path::new(&workspace_path);
+    let backup_id = workspace::reliability::apply_migration(root)?;
+    let workspace = workspace::open(root).map_err(|error| error.to_string())?;
+    Ok(MigrationResult {
+        backup_id,
+        workspace,
+    })
+}
+
+#[tauri::command]
+pub fn rollback_workspace_migration(
+    workspace_path: String,
+    backup_id: String,
+) -> Result<WorkspaceSnapshot, String> {
+    let root = Path::new(&workspace_path);
+    workspace::reliability::restore_backup(root, &backup_id)?;
+    workspace::open(root).map_err(|error| error.to_string())
 }

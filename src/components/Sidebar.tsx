@@ -16,6 +16,7 @@ type Props = {
   onSettings: () => void;
   onHistory: () => void;
   onCookies: () => void;
+  onDiagnostics: () => void;
   onRun: () => void;
   onStream: () => void;
   onClose: () => void;
@@ -50,6 +51,7 @@ export function Sidebar({
   onSettings,
   onHistory,
   onCookies,
+  onDiagnostics,
   onRun,
   onStream,
   onClose,
@@ -110,6 +112,7 @@ export function Sidebar({
         <button className="secondary-button" type="button" onClick={onExport}>Экспорт</button>
         <button className="secondary-button" type="button" onClick={onHistory}>История</button>
         <button className="secondary-button" type="button" onClick={onCookies}>Cookie</button>
+        <button className="secondary-button" type="button" onClick={onDiagnostics}>Диагностика</button>
         <button className="secondary-button" type="button" onClick={onRun}>Запуск</button>
         <button className="secondary-button" type="button" onClick={onStream}>Потоки</button>
         <button className="secondary-button guard-button" type="button" onClick={onSettings}>
@@ -119,12 +122,12 @@ export function Sidebar({
 
       <div className="sidebar-section-heading">
         <span>Запросы</span>
-        <button className="quiet-icon" type="button" onClick={onNewRequest} title="Новый запрос" aria-label="Новый запрос">+</button>
+        <button className="quiet-icon" type="button" data-shortcut="new-request" aria-keyshortcuts="Alt+N" onClick={onNewRequest} title="Новый запрос (Alt+N)" aria-label="Новый запрос">+</button>
       </div>
 
       <label className="sidebar-search">
         <span className="sr-only">Поиск запросов и окружений</span>
-        <input value={search} onChange={(event) => setSearch(event.currentTarget.value)} placeholder="Поиск по запросам и URL" />
+        <input id="workspace-search" value={search} onChange={(event) => setSearch(event.currentTarget.value)} placeholder="Поиск по запросам и URL" />
         {search && <button type="button" onClick={() => setSearch("")} aria-label="Очистить поиск">×</button>}
       </label>
       {matchingEnvironments.length > 0 && <div className="environment-results"><small>Окружения</small>{matchingEnvironments.map((environment) => <button type="button" key={environment.relative_path} onClick={() => onEnvironmentChange(environment.relative_path)}>{environmentLabel(environment)}</button>)}</div>}

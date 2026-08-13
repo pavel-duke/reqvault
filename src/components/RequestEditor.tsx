@@ -148,7 +148,7 @@ export function RequestEditor({
             disabled={relativePath !== null}
           />
         </label>
-        <button className="secondary-button" type="button" onClick={onSave} disabled={saving || !request.name.trim()}>
+        <button className="secondary-button" type="button" data-shortcut="save-request" aria-keyshortcuts="Control+S Meta+S" onClick={onSave} disabled={saving || !request.name.trim()}>
           {saving ? "Сохраняю…" : "Сохранить"}
         </button>
         {relativePath && (
@@ -180,12 +180,12 @@ export function RequestEditor({
       {error && <div className="error-banner editor-error" role="alert">{error}</div>}
 
       <div className="editor-tabs" role="tablist" aria-label="Настройки запроса">
-        <button className={tab === "query" ? "active" : ""} type="button" onClick={() => setTab("query")}>Параметры <span>{request.query.length || ""}</span></button>
-        <button className={tab === "headers" ? "active" : ""} type="button" onClick={() => setTab("headers")}>Заголовки <span>{Object.keys(request.headers).length || ""}</span></button>
-        <button className={tab === "auth" ? "active" : ""} type="button" onClick={() => setTab("auth")}>Авторизация</button>
-        <button className={tab === "body" ? "active" : ""} type="button" onClick={() => setTab("body")}>Тело</button>
-        <button className={tab === "tests" ? "active" : ""} type="button" onClick={() => setTab("tests")}>Проверки <span>{request.tests.length || ""}</span></button>
-        <button className={tab === "transport" ? "active" : ""} type="button" onClick={() => setTab("transport")}>Сеть</button>
+        <button role="tab" aria-selected={tab === "query"} className={tab === "query" ? "active" : ""} type="button" onClick={() => setTab("query")}>Параметры <span>{request.query.length || ""}</span></button>
+        <button role="tab" aria-selected={tab === "headers"} className={tab === "headers" ? "active" : ""} type="button" onClick={() => setTab("headers")}>Заголовки <span>{Object.keys(request.headers).length || ""}</span></button>
+        <button role="tab" aria-selected={tab === "auth"} className={tab === "auth" ? "active" : ""} type="button" onClick={() => setTab("auth")}>Авторизация</button>
+        <button role="tab" aria-selected={tab === "body"} className={tab === "body" ? "active" : ""} type="button" onClick={() => setTab("body")}>Тело</button>
+        <button role="tab" aria-selected={tab === "tests"} className={tab === "tests" ? "active" : ""} type="button" onClick={() => setTab("tests")}>Проверки <span>{request.tests.length || ""}</span></button>
+        <button role="tab" aria-selected={tab === "transport"} className={tab === "transport" ? "active" : ""} type="button" onClick={() => setTab("transport")}>Сеть</button>
       </div>
 
       <div className="tab-content">

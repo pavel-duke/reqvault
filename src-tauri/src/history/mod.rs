@@ -7,6 +7,7 @@ use std::{
 use uuid::Uuid;
 
 use crate::{
+    fs_utils::atomic_write,
     models::{HistoryEntry, HistorySettings, HistorySummary, HttpResponse, RequestFile},
     variables::redact_secret_references,
 };
@@ -162,11 +163,9 @@ fn read_entry(path: &Path) -> Result<HistoryEntry, String> {
 }
 
 fn write_json(path: &Path, value: &impl serde::Serialize) -> Result<(), String> {
-    let temporary = path.with_extension("tmp");
     let content = serde_json::to_vec_pretty(value)
         .map_err(|_| "Не удалось подготовить данные истории".to_string())?;
-    fs::write(&temporary, content).map_err(|_| "Не удалось записать историю".to_string())?;
-    fs::rename(&temporary, path).map_err(|_| "Не удалось завершить запись истории".to_string())
+    atomic_write(path, &content).map_err(|_| "Не удалось записать историю".to_string())
 }
 
 fn enforce_limit(folder: &Path, limit: usize) -> Result<(), String> {

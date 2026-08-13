@@ -2,6 +2,30 @@
 
 Формат основан на [Keep a Changelog](https://keepachangelog.com/ru/1.1.0/), версия проекта следует [Semantic Versioning](https://semver.org/lang/ru/).
 
+## [0.9.0] — 2026-08-13
+
+### Добавлено
+
+- диагностика YAML, структуры, формата, UUID, переменных, Secret Vault и внешних файлов;
+- preview миграции workspace со списком файлов и изменений;
+- автоматический backup перед миграцией и откат из интерфейса;
+- fingerprint YAML-файлов и уведомление об изменениях из внешнего редактора;
+- восстановление несохранённого черновика после перезапуска;
+- горячие клавиши: `Ctrl/Cmd+S`, `Ctrl/Cmd+K`, `Alt+N`;
+- skip-link, focus trap, закрытие модальных окон по Escape и корректные роли вкладок.
+
+### Изменено
+
+- workspace, история и экспорт записываются через временный файл и atomic replace;
+- запись принудительно синхронизируется с диском до замены целевого файла;
+- диагностика сортирует ошибки по важности и предлагает конкретное исправление.
+
+### Безопасность
+
+- credential удаляются из crash-recovery черновика до записи в local storage;
+- sensitive headers, query, auth, proxy и чувствительные JSON-поля не сохраняются в черновике;
+- диагностика проверяет наличие секретов, но никогда не читает их значения.
+
 ## [0.8.0] — 2026-08-13
 
 ### Добавлено
@@ -143,3 +167,4 @@
 [0.6.0]: https://github.com/pavel-duke/reqvault/releases/tag/v0.6.0
 [0.7.0]: https://github.com/pavel-duke/reqvault/releases/tag/v0.7.0
 [0.8.0]: https://github.com/pavel-duke/reqvault/releases/tag/v0.8.0
+[0.9.0]: https://github.com/pavel-duke/reqvault/releases/tag/v0.9.0

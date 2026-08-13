@@ -17,6 +17,9 @@ import type {
   CollectionRunOptions,
   CollectionRunReport,
   CookieSummary,
+  MigrationPlan,
+  MigrationResult,
+  WorkspaceDiagnostics,
   StreamConnectConfig,
   StreamEvent,
 } from "./types";
@@ -189,6 +192,26 @@ export function removeSecret(workspaceId: string, name: string): Promise<string[
 
 export function openWorkspace(path: string): Promise<WorkspaceSnapshot> {
   return invoke("open_workspace", { path });
+}
+
+export function getWorkspaceFingerprint(workspacePath: string): Promise<string> {
+  return invoke("workspace_fingerprint", { workspacePath });
+}
+
+export function diagnoseWorkspace(workspacePath: string): Promise<WorkspaceDiagnostics> {
+  return invoke("diagnose_workspace", { workspacePath });
+}
+
+export function previewWorkspaceMigration(workspacePath: string): Promise<MigrationPlan> {
+  return invoke("preview_workspace_migration", { workspacePath });
+}
+
+export function migrateWorkspace(workspacePath: string): Promise<MigrationResult> {
+  return invoke("migrate_workspace", { workspacePath });
+}
+
+export function rollbackWorkspaceMigration(workspacePath: string, backupId: string): Promise<WorkspaceSnapshot> {
+  return invoke("rollback_workspace_migration", { workspacePath, backupId });
 }
 
 export function saveRequest(

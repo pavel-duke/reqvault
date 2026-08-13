@@ -106,6 +106,22 @@ body {
   background: var(--background);
 }
 
+.skip-link {
+  position: fixed;
+  top: 8px;
+  left: 8px;
+  z-index: 1000;
+  padding: 8px 12px;
+  color: #fff;
+  border-radius: 7px;
+  background: var(--accent);
+  transform: translateY(-150%);
+}
+
+.skip-link:focus {
+  transform: translateY(0);
+}
+
 button,
 input,
 select,
@@ -1622,6 +1638,185 @@ code {
   .compare-layout { grid-template-columns: 1fr; }
   .compare-history { max-height: 210px; border-right: 0; border-bottom: 1px solid var(--border); }
   .diff-item { grid-template-columns: 1fr; }
+}
+
+.diagnostics-modal {
+  width: min(980px, calc(100vw - 40px));
+  max-height: calc(100vh - 40px);
+}
+
+.diagnostic-metrics {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 8px;
+  padding: 16px 20px;
+  border-top: 1px solid var(--border);
+}
+
+.diagnostic-metrics > div {
+  display: grid;
+  gap: 2px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--surface-muted);
+}
+
+.diagnostic-metrics strong {
+  font-size: 22px;
+}
+
+.diagnostic-metrics span {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.diagnostic-metrics .metric-error strong { color: #dc2626; }
+.diagnostic-metrics .metric-warning strong { color: #d97706; }
+
+.migration-card,
+.rollback-card {
+  display: flex;
+  gap: 16px;
+  align-items: center;
+  margin: 0 20px 14px;
+  padding: 14px;
+  border: 1px solid color-mix(in srgb, var(--accent) 38%, var(--border));
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--accent) 7%, var(--surface));
+}
+
+.migration-card > div {
+  flex: 1;
+}
+
+.migration-card strong,
+.migration-card p {
+  display: block;
+  margin: 4px 0 0;
+}
+
+.migration-card p,
+.migration-card small {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.rollback-card {
+  justify-content: space-between;
+  border-color: var(--border);
+  background: var(--surface-muted);
+}
+
+.diagnostic-toolbar {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 0 20px 12px;
+}
+
+.diagnostic-toolbar [role="tablist"] {
+  display: flex;
+  gap: 3px;
+  padding: 3px;
+  border-radius: 8px;
+  background: var(--surface-muted);
+}
+
+.diagnostic-toolbar [role="tab"] {
+  padding: 6px 9px;
+  cursor: pointer;
+  color: var(--muted);
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  font-size: 12px;
+}
+
+.diagnostic-toolbar [role="tab"].active {
+  color: var(--text);
+  background: var(--surface);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, .08);
+}
+
+.diagnostic-list {
+  min-height: 260px;
+  max-height: 48vh;
+  padding: 0 20px;
+  overflow: auto;
+}
+
+.diagnostic-issue {
+  display: grid;
+  grid-template-columns: 28px 1fr;
+  gap: 10px;
+  margin-bottom: 7px;
+  padding: 11px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.issue-mark {
+  display: grid;
+  width: 24px;
+  height: 24px;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--surface-muted);
+  font-weight: 800;
+}
+
+.issue-error .issue-mark { color: #dc2626; background: color-mix(in srgb, #dc2626 10%, var(--surface)); }
+.issue-warning .issue-mark { color: #d97706; background: color-mix(in srgb, #d97706 10%, var(--surface)); }
+.issue-info .issue-mark { color: var(--accent); }
+
+.diagnostic-issue code {
+  display: block;
+  margin-top: 3px;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.diagnostic-issue p {
+  margin: 6px 0 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.diagnostic-ok {
+  padding: 54px 20px;
+  text-align: center;
+}
+
+.diagnostic-ok p {
+  color: var(--muted);
+}
+
+.external-change-banner,
+.draft-recovery-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border);
+  background: color-mix(in srgb, #f59e0b 10%, var(--surface));
+}
+
+.draft-recovery-banner {
+  background: color-mix(in srgb, var(--accent) 8%, var(--surface));
+}
+
+.external-change-banner p,
+.draft-recovery-banner p {
+  margin: 2px 0 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+@media (max-width: 720px) {
+  .diagnostic-metrics { grid-template-columns: repeat(2, 1fr); }
+  .migration-card { align-items: stretch; flex-direction: column; }
 }
 
 .history-settings {

@@ -1,3 +1,4 @@
+mod diagnostics;
 mod history;
 mod import_result;
 mod oauth;
@@ -9,6 +10,7 @@ mod session;
 mod stream;
 mod workspace;
 
+pub use diagnostics::{DiagnosticIssue, MigrationPlan, MigrationResult, WorkspaceDiagnostics};
 pub use oauth::OAuthResult;
 pub use request::{
     AuthConfig, BodyConfig, EnvironmentFile, KeyValue, MultipartField, ProxyConfig, RequestFile,

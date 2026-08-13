@@ -8,8 +8,10 @@ import {
   clearHistory,
   closeWorkspaceSession,
   deleteCookie,
+  diagnoseWorkspace,
   getHistoryEntry,
   getHistorySettings,
+  getWorkspaceFingerprint,
   errorMessage,
   exportWorkspace,
   exportResponse,
@@ -21,12 +23,14 @@ import {
   listHistory,
   listCookies,
   listSecrets,
+  migrateWorkspace,
   openWorkspace,
   removeEnvironment,
   removeHistoryEntry,
   removeRequest,
   removeSecret,
   refreshOAuth,
+  rollbackWorkspaceMigration,
   runCollection,
   saveEnvironment,
   saveResponseFixture,
@@ -37,6 +41,7 @@ import {
   updateHistorySettings,
 } from "./api";
 import { EnvironmentDialog } from "./components/EnvironmentDialog";
+import { DiagnosticsDialog } from "./components/DiagnosticsDialog";
 import { CurlImportDialog } from "./components/CurlImportDialog";
 import { CollectionRunnerDialog } from "./components/CollectionRunnerDialog";
 import { CookieDialog } from "./components/CookieDialog";
@@ -50,7 +55,8 @@ import { StartScreen } from "./components/StartScreen";
 import { WorkspaceSettingsDialog } from "./components/WorkspaceSettingsDialog";
 import { StreamDialog } from "./components/StreamDialog";
 import { collectionFromPath, emptyRequest } from "./request-utils";
-import type { CollectionRunOptions, CollectionRunReport, CookieSummary, EnvironmentFile, HistorySettings, HistorySummary, HttpError, HttpResponse, RequestFile, RequestSummary, SecurityReport, Theme, WorkspaceConfig, WorkspaceSnapshot } from "./types";
+import { draftStorageKey, sanitizeDraft, type StoredDraft } from "./draft-storage";
+import type { CollectionRunOptions, CollectionRunReport, CookieSummary, EnvironmentFile, HistorySettings, HistorySummary, HttpError, HttpResponse, RequestFile, RequestSummary, SecurityReport, Theme, WorkspaceConfig, WorkspaceDiagnostics, WorkspaceSnapshot } from "./types";
 import "./App.css";
 
 const LAST_WORKSPACE_KEY = "reqvault.last-workspace";
@@ -106,6 +112,17 @@ function App() {
   const [compareOpen, setCompareOpen] = useState(false);
   const [compareBusy, setCompareBusy] = useState(false);
   const [compareError, setCompareError] = useState<string | null>(null);
+  const [diagnosticsOpen, setDiagnosticsOpen] = useState(false);
+  const [diagnosticsBusy, setDiagnosticsBusy] = useState(false);
+  const [diagnosticsError, setDiagnosticsError] = useState<string | null>(null);
+  const [diagnostics, setDiagnostics] = useState<WorkspaceDiagnostics | null>(null);
+  const [migrationBackupId, setMigrationBackupId] = useState<string | null>(null);
+  const [knownFingerprint, setKnownFingerprint] = useState("");
+  const [externalChange, setExternalChange] = useState(false);
+  const [draftDirty, setDraftDirty] = useState(false);
+  const [recoverableDraft, setRecoverableDraft] = useState<StoredDraft | null>(null);
+  const modalOpen = environmentsOpen || secretsOpen || historyOpen || cookiesOpen || compareOpen
+    || curlOpen || settingsOpen || runnerOpen || streamOpen || diagnosticsOpen;
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
@@ -119,6 +136,8 @@ function App() {
       .then((snapshot) => applyWorkspace(snapshot))
       .catch(() => window.localStorage.removeItem(LAST_WORKSPACE_KEY))
       .finally(() => setBusy(false));
+    // Восстановление последнего workspace выполняется только при запуске окна.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
@@ -133,9 +152,102 @@ function App() {
     return () => window.clearTimeout(timer);
   }, [activeEnvironment, draft, workspace]);
 
+  useEffect(() => {
+    if (!workspace || !draft || !draftDirty) return;
+    const timer = window.setTimeout(() => {
+      const stored: StoredDraft = {
+        relativePath: selectedPath,
+        collection,
+        updatedAt: Date.now(),
+        request: sanitizeDraft(draft),
+      };
+      window.localStorage.setItem(draftStorageKey(workspace.config.id), JSON.stringify(stored));
+    }, 250);
+    return () => window.clearTimeout(timer);
+  }, [collection, draft, draftDirty, selectedPath, workspace]);
+
+  useEffect(() => {
+    if (!workspace || !knownFingerprint) return;
+    let disposed = false;
+    const check = async () => {
+      try {
+        const fingerprint = await getWorkspaceFingerprint(workspace.root_path);
+        if (!disposed && fingerprint !== knownFingerprint) setExternalChange(true);
+      } catch {
+        // Ошибка будет показана при ручном открытии или диагностике workspace.
+      }
+    };
+    const timer = window.setInterval(() => void check(), 3000);
+    return () => {
+      disposed = true;
+      window.clearInterval(timer);
+    };
+  }, [knownFingerprint, workspace]);
+
+  useEffect(() => {
+    if (!modalOpen) return;
+    const previous = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const frame = window.requestAnimationFrame(() => {
+      document.querySelector<HTMLElement>("[role='dialog'] button:not(:disabled), [role='dialog'] input:not(:disabled), [role='dialog'] select:not(:disabled)")?.focus();
+    });
+    const trapFocus = (event: globalThis.KeyboardEvent) => {
+      const dialog = document.querySelector<HTMLElement>("[role='dialog']");
+      if (!dialog) return;
+      if (event.key === "Escape") {
+        event.preventDefault();
+        dialog.querySelector<HTMLButtonElement>("button[aria-label='Закрыть']")?.click();
+        return;
+      }
+      if (event.key !== "Tab") return;
+      const focusable = [...dialog.querySelectorAll<HTMLElement>("button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [href], [tabindex]:not([tabindex='-1'])")];
+      if (focusable.length === 0) return;
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+    window.addEventListener("keydown", trapFocus);
+    return () => {
+      window.cancelAnimationFrame(frame);
+      window.removeEventListener("keydown", trapFocus);
+      previous?.focus();
+    };
+  }, [modalOpen]);
+
+  useEffect(() => {
+    if (!workspace || !draft || !draftDirty) return;
+    const saveBeforeClose = () => {
+      const stored: StoredDraft = { relativePath: selectedPath, collection, updatedAt: Date.now(), request: sanitizeDraft(draft) };
+      window.localStorage.setItem(draftStorageKey(workspace.config.id), JSON.stringify(stored));
+    };
+    window.addEventListener("beforeunload", saveBeforeClose);
+    return () => window.removeEventListener("beforeunload", saveBeforeClose);
+  }, [collection, draft, draftDirty, selectedPath, workspace]);
+
   function applyWorkspace(snapshot: WorkspaceSnapshot) {
+    const workspaceChanged = workspace?.config.id !== snapshot.config.id;
     setWorkspace(snapshot);
     window.localStorage.setItem(LAST_WORKSPACE_KEY, snapshot.root_path);
+    setExternalChange(false);
+    void getWorkspaceFingerprint(snapshot.root_path).then(setKnownFingerprint).catch(() => setKnownFingerprint(""));
+    if (workspaceChanged) {
+      const stored = window.localStorage.getItem(draftStorageKey(snapshot.config.id));
+      if (stored) {
+        try {
+          setRecoverableDraft(JSON.parse(stored) as StoredDraft);
+        } catch {
+          window.localStorage.removeItem(draftStorageKey(snapshot.config.id));
+          setRecoverableDraft(null);
+        }
+      } else {
+        setRecoverableDraft(null);
+      }
+    }
     setActiveEnvironment((current) =>
       snapshot.environments.some((item) => item.relative_path === current)
         ? current
@@ -167,6 +279,7 @@ function App() {
     setError(null);
     setResponse(null);
     setHttpError(null);
+    setDraftDirty(false);
   }
 
   function newRequest() {
@@ -176,6 +289,12 @@ function App() {
     setError(null);
     setResponse(null);
     setHttpError(null);
+    setDraftDirty(true);
+  }
+
+  function updateDraft(request: RequestFile) {
+    setDraft(request);
+    setDraftDirty(true);
   }
 
   async function sendCurrentRequest() {
@@ -441,6 +560,8 @@ function App() {
       const snapshot = await openWorkspace(workspace.root_path);
       applyWorkspace(snapshot);
       selectRequest(saved);
+      window.localStorage.removeItem(draftStorageKey(workspace.config.id));
+      setRecoverableDraft(null);
     } catch (caught) {
       setError(errorMessage(caught));
     } finally {
@@ -585,17 +706,122 @@ function App() {
     }
   }
 
+  async function openDiagnostics() {
+    if (!workspace) return;
+    setDiagnosticsOpen(true);
+    setDiagnosticsBusy(true);
+    setDiagnosticsError(null);
+    try {
+      setDiagnostics(await diagnoseWorkspace(workspace.root_path));
+    } catch (caught) {
+      setDiagnosticsError(errorMessage(caught));
+    } finally {
+      setDiagnosticsBusy(false);
+    }
+  }
+
+  async function applyMigration() {
+    if (!workspace) return;
+    setDiagnosticsBusy(true);
+    setDiagnosticsError(null);
+    try {
+      const result = await migrateWorkspace(workspace.root_path);
+      applyWorkspace(result.workspace);
+      setMigrationBackupId(result.backup_id);
+      setDiagnostics(await diagnoseWorkspace(workspace.root_path));
+    } catch (caught) {
+      setDiagnosticsError(errorMessage(caught));
+    } finally {
+      setDiagnosticsBusy(false);
+    }
+  }
+
+  async function rollbackMigration(backupId: string) {
+    if (!workspace) return;
+    setDiagnosticsBusy(true);
+    setDiagnosticsError(null);
+    try {
+      applyWorkspace(await rollbackWorkspaceMigration(workspace.root_path, backupId));
+      setMigrationBackupId(null);
+      setDiagnostics(await diagnoseWorkspace(workspace.root_path));
+    } catch (caught) {
+      setDiagnosticsError(errorMessage(caught));
+    } finally {
+      setDiagnosticsBusy(false);
+    }
+  }
+
+  async function reloadExternalChanges() {
+    if (!workspace) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const snapshot = await openWorkspace(workspace.root_path);
+      const selected = selectedPath ? snapshot.requests.find((item) => item.relative_path === selectedPath) : null;
+      applyWorkspace(snapshot);
+      if (selected) selectRequest(selected);
+      else {
+        setSelectedPath(null);
+        setDraft(null);
+        setDraftDirty(false);
+      }
+    } catch (caught) {
+      setError(errorMessage(caught));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function restoreDraft() {
+    if (!recoverableDraft) return;
+    setSelectedPath(recoverableDraft.relativePath);
+    setCollection(recoverableDraft.collection);
+    setDraft(recoverableDraft.request);
+    setDraftDirty(true);
+    setRecoverableDraft(null);
+    setResponse(null);
+    setHttpError(null);
+  }
+
+  function discardRecoveredDraft() {
+    if (workspace) window.localStorage.removeItem(draftStorageKey(workspace.config.id));
+    setRecoverableDraft(null);
+  }
+
+  useEffect(() => {
+    const onKeyDown = (event: globalThis.KeyboardEvent) => {
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "k") {
+        event.preventDefault();
+        document.querySelector<HTMLInputElement>("#workspace-search")?.focus();
+      } else if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "s") {
+        event.preventDefault();
+        document.querySelector<HTMLButtonElement>("[data-shortcut='save-request']")?.click();
+      } else if (event.altKey && event.key.toLowerCase() === "n") {
+        event.preventDefault();
+        document.querySelector<HTMLButtonElement>("[data-shortcut='new-request']")?.click();
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, []);
+
   function closeWorkspace() {
-    if (workspace) void closeWorkspaceSession(workspace.config.id);
+    if (workspace) {
+      void closeWorkspaceSession(workspace.config.id);
+      window.localStorage.removeItem(draftStorageKey(workspace.config.id));
+    }
     window.localStorage.removeItem(LAST_WORKSPACE_KEY);
     setWorkspace(null);
     setDraft(null);
     setSelectedPath(null);
     setError(null);
+    setRecoverableDraft(null);
+    setDraftDirty(false);
   }
 
   return (
     <main className="app-shell">
+      <a className="skip-link" href="#main-workspace">Перейти к редактору</a>
       <header className="topbar">
         <div className="brand" aria-label="ReqVault"><span className="brand-mark" aria-hidden="true">RV</span><span>ReqVault</span></div>
         <button className="icon-button" type="button" onClick={() => setTheme(theme === "dark" ? "light" : "dark")} aria-label={theme === "dark" ? "Включить светлую тему" : "Включить тёмную тему"} title={theme === "dark" ? "Светлая тема" : "Тёмная тема"}>{theme === "dark" ? "☀" : "☾"}</button>
@@ -620,15 +846,18 @@ function App() {
             onSettings={() => { setSettingsError(null); setSettingsOpen(true); }}
             onHistory={() => void openHistory()}
             onCookies={() => void openCookies()}
+            onDiagnostics={() => void openDiagnostics()}
             onRun={() => { setRunnerError(null); setRunnerReport(null); setRunnerOpen(true); }}
             onStream={() => setStreamOpen(true)}
             onClose={closeWorkspace}
           />
-          <div className="main-panel">
+          <div className="main-panel" id="main-workspace" tabIndex={-1}>
+            {externalChange && <div className="external-change-banner" role="status"><div><strong>Файлы workspace изменились вне ReqVault</strong><p>{draftDirty ? "Перезагрузка заменит текущий несохранённый черновик." : "Перезагрузите данные, чтобы увидеть актуальную версию."}</p></div><button className="secondary-button" type="button" onClick={() => void reloadExternalChanges()}>Перезагрузить</button></div>}
+            {recoverableDraft && <div className="draft-recovery-banner" role="status"><div><strong>Найден несохранённый черновик</strong><p>Сохранён {new Intl.DateTimeFormat("ru-RU", { dateStyle: "short", timeStyle: "short" }).format(recoverableDraft.updatedAt)}. Credential были удалены из локальной копии.</p></div><div className="inline-actions"><button className="primary-button" type="button" onClick={restoreDraft}>Восстановить</button><button className="secondary-button" type="button" onClick={discardRecoveredDraft}>Удалить</button></div></div>}
             {draft ? (
               <div className="request-workbench">
                 {importStatus && <div className="success-banner">{importStatus}</div>}
-                <RequestEditor request={draft} relativePath={selectedPath} collection={collection} saving={busy} sending={sending} error={error} securityReport={securityReport} copyStatus={copyStatus} onChange={setDraft} onCollectionChange={setCollection} onSave={() => void persistRequest()} onDelete={() => void deleteCurrentRequest()} onSend={() => void sendCurrentRequest()} onCopyCurl={() => void copyCurl()} onAuthorizeOAuth={() => void authorizeCurrentOAuth()} onRefreshOAuth={() => void refreshCurrentOAuth()} oauthBusy={oauthBusy} oauthStatus={oauthStatus} />
+                <RequestEditor request={draft} relativePath={selectedPath} collection={collection} saving={busy} sending={sending} error={error} securityReport={securityReport} copyStatus={copyStatus} onChange={updateDraft} onCollectionChange={(value) => { setCollection(value); setDraftDirty(true); }} onSave={() => void persistRequest()} onDelete={() => void deleteCurrentRequest()} onSend={() => void sendCurrentRequest()} onCopyCurl={() => void copyCurl()} onAuthorizeOAuth={() => void authorizeCurrentOAuth()} onRefreshOAuth={() => void refreshCurrentOAuth()} oauthBusy={oauthBusy} oauthStatus={oauthStatus} />
                 <ResponseViewer response={response} error={httpError} loading={sending} onExport={(format) => void exportCurrentResponse(format)} onSaveFixture={() => void saveCurrentFixture()} onCompare={() => void openResponseCompare()} actionStatus={responseActionStatus} />
               </div>
             ) : (
@@ -652,6 +881,10 @@ function App() {
 
       {workspace && cookiesOpen && (
         <CookieDialog cookies={cookies} busy={cookiesBusy} error={cookiesError} onDelete={deleteSessionCookie} onClear={clearSessionCookies} onClose={() => setCookiesOpen(false)} />
+      )}
+
+      {workspace && diagnosticsOpen && (
+        <DiagnosticsDialog report={diagnostics} busy={diagnosticsBusy} error={diagnosticsError} backupId={migrationBackupId} onRefresh={() => void openDiagnostics()} onMigrate={applyMigration} onRollback={rollbackMigration} onClose={() => setDiagnosticsOpen(false)} />
       )}
 
       {workspace && response && compareOpen && (

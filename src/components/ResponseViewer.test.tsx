@@ -29,7 +29,7 @@ describe("ResponseViewer", () => {
   it("переключается на заголовки ответа", async () => {
     const user = userEvent.setup();
     render(<ResponseViewer response={response} error={null} loading={false} />);
-    await user.click(screen.getByRole("button", { name: /Заголовки/ }));
+    await user.click(screen.getByRole("tab", { name: /Заголовки/ }));
     expect(screen.getByText("content-type")).toBeInTheDocument();
     expect(screen.getAllByText("application/json")).toHaveLength(2);
   });

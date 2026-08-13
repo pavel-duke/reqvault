@@ -192,6 +192,40 @@ export type CookieSummary = {
   expires_at: number | null;
 };
 
+export type DiagnosticIssue = {
+  severity: "error" | "warning" | "info";
+  code: string;
+  path: string;
+  message: string;
+  remediation: string;
+};
+
+export type MigrationPlan = {
+  required: boolean;
+  current_version: number;
+  target_version: number;
+  files: string[];
+  changes: string[];
+  warnings: string[];
+};
+
+export type WorkspaceDiagnostics = {
+  checked_at_ms: number;
+  fingerprint: string;
+  files: number;
+  requests: number;
+  environments: number;
+  errors: number;
+  warnings: number;
+  issues: DiagnosticIssue[];
+  migration: MigrationPlan;
+};
+
+export type MigrationResult = {
+  backup_id: string | null;
+  workspace: WorkspaceSnapshot;
+};
+
 export type SecurityReport = {
   https: boolean;
   host: string;

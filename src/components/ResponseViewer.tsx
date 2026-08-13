@@ -85,9 +85,9 @@ export function ResponseViewer({ response, error, loading, onExport, onSaveFixtu
           {response.truncated && <div className="response-warning" role="status"><strong>Показан только безопасный preview до 8 МБ.</strong> Полный ответ не загружался в память. Экспорт и fixture содержат только полученную часть.</div>}
           {graphQLErrors.length > 0 && <div className="graphql-errors" role="alert"><strong>GraphQL вернул errors</strong><ul>{graphQLErrors.map((message, index) => <li key={index}>{message}</li>)}</ul></div>}
           <div className="editor-tabs response-tabs" role="tablist" aria-label="Данные ответа">
-            <button className={tab === "body" ? "active" : ""} type="button" onClick={() => setTab("body")}>Ответ</button>
-            <button className={tab === "headers" ? "active" : ""} type="button" onClick={() => setTab("headers")}>Заголовки <span>{response.headers.length}</span></button>
-            <button className={tab === "raw" ? "active" : ""} type="button" onClick={() => setTab("raw")}>Raw</button>
+            <button role="tab" aria-selected={tab === "body"} className={tab === "body" ? "active" : ""} type="button" onClick={() => setTab("body")}>Ответ</button>
+            <button role="tab" aria-selected={tab === "headers"} className={tab === "headers" ? "active" : ""} type="button" onClick={() => setTab("headers")}>Заголовки <span>{response.headers.length}</span></button>
+            <button role="tab" aria-selected={tab === "raw"} className={tab === "raw" ? "active" : ""} type="button" onClick={() => setTab("raw")}>Raw</button>
           </div>
           {tab === "headers" ? (
             <dl className="response-headers">

@@ -81,6 +81,13 @@ pub fn secret_names(input: &str) -> Vec<String> {
         .collect()
 }
 
+pub fn variable_names(input: &str) -> Vec<String> {
+    variable_pattern()
+        .captures_iter(input)
+        .map(|captures| captures[1].to_string())
+        .collect()
+}
+
 pub fn is_exact_secret_reference(input: &str) -> bool {
     let trimmed = input.trim();
     secret_pattern()
