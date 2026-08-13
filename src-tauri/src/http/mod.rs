@@ -452,4 +452,46 @@ mod tests {
             "validation"
         );
     }
+
+    #[tokio::test]
+    async fn redacts_secret_from_response_and_error() {
+        const TEST_SECRET: &str = "REQVAULT_TEST_SECRET_DO_NOT_LEAK_123456";
+        let response = Box::leak(
+            format!(
+                "HTTP/1.1 200 OK\r\nContent-Length: {}\r\n\r\n{TEST_SECRET}",
+                TEST_SECRET.len()
+            )
+            .into_boxed_str(),
+        );
+        let (url, _) = server(response, None).await.unwrap();
+        let mut request = RequestFile {
+            url,
+            ..RequestFile::default()
+        };
+        request.headers.insert(
+            "X-Test-Token".to_string(),
+            "{{secret:API_TOKEN}}".to_string(),
+        );
+        let mut resolve_secret = |_: &str| Ok(TEST_SECRET.to_string());
+        let result = send(&request, None, &mut resolve_secret).await.unwrap();
+        assert!(!result.body.contains(TEST_SECRET));
+
+        let unused_listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let unused_address = unused_listener.local_addr().unwrap();
+        drop(unused_listener);
+        let mut request = RequestFile {
+            url: format!("http://{unused_address}"),
+            timeout_ms: 500,
+            ..RequestFile::default()
+        };
+        request.query.push(crate::models::KeyValue {
+            name: "token".to_string(),
+            value: "{{secret:API_TOKEN}}".to_string(),
+            enabled: true,
+        });
+        let error = send(&request, None, &mut resolve_secret).await.unwrap_err();
+        let visible_error = format!("{} {:?}", error.message, error.details);
+        assert!(visible_error.contains("***REDACTED***"));
+        assert!(!visible_error.contains(TEST_SECRET));
+    }
 }
