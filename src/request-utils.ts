@@ -12,6 +12,12 @@ export function emptyRequest(): RequestFile {
     body: { type: "none" },
     timeout_ms: 30_000,
     follow_redirects: true,
+    transport: {
+      proxy: { type: "none" },
+      custom_ca_path: "",
+      client_certificate_path: "",
+      client_key_path: "",
+    },
   };
 }
 

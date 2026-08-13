@@ -4,6 +4,11 @@ import type {
   EnvironmentSummary,
   HttpError,
   HttpResponse,
+  HistoryEntry,
+  HistorySettings,
+  HistorySummary,
+  ImportResult,
+  OAuthResult,
   RequestFile,
   RequestSummary,
   SecurityReport,
@@ -26,6 +31,45 @@ export function generateSafeCurl(
   environment: EnvironmentFile | null,
 ): Promise<string> {
   return invoke("generate_safe_curl", { request, environment });
+}
+
+export function authorizeOAuth(
+  request: RequestFile,
+  environment: EnvironmentFile | null,
+  workspaceId: string,
+): Promise<OAuthResult> {
+  return invoke("authorize_oauth", { request, environment, workspaceId });
+}
+
+export function importCollection(workspacePath: string, filePath: string): Promise<ImportResult> {
+  return invoke("import_collection", { workspacePath, filePath });
+}
+
+export function getHistorySettings(workspaceId: string): Promise<HistorySettings> {
+  return invoke("get_history_settings", { workspaceId });
+}
+
+export function updateHistorySettings(
+  workspaceId: string,
+  settings: HistorySettings,
+): Promise<HistorySettings> {
+  return invoke("set_history_settings", { workspaceId, settings });
+}
+
+export function listHistory(workspaceId: string): Promise<HistorySummary[]> {
+  return invoke("list_history", { workspaceId });
+}
+
+export function getHistoryEntry(workspaceId: string, id: string): Promise<HistoryEntry> {
+  return invoke("get_history_entry", { workspaceId, id });
+}
+
+export function removeHistoryEntry(workspaceId: string, id: string): Promise<void> {
+  return invoke("delete_history_entry", { workspaceId, id });
+}
+
+export function clearHistory(workspaceId: string): Promise<void> {
+  return invoke("clear_history", { workspaceId });
 }
 
 export async function sendHttpRequest(

@@ -4,18 +4,46 @@ export type KeyValue = {
   enabled: boolean;
 };
 
+export type MultipartField =
+  | { type: "text"; name: string; value: string; enabled: boolean }
+  | { type: "file"; name: string; path: string; content_type: string; enabled: boolean };
+
+export type ProxyConfig =
+  | { type: "none" }
+  | { type: "system" }
+  | { type: "custom"; url: string; username: string; password: string };
+
+export type TransportConfig = {
+  proxy: ProxyConfig;
+  custom_ca_path: string;
+  client_certificate_path: string;
+  client_key_path: string;
+};
+
 export type AuthConfig =
   | { type: "none" }
   | { type: "bearer"; token: string }
   | { type: "basic"; username: string; password: string }
   | { type: "api_key_header"; name: string; value: string }
-  | { type: "api_key_query"; name: string; value: string };
+  | { type: "api_key_query"; name: string; value: string }
+  | {
+      type: "oauth2";
+      grant_type: "authorization_code_pkce" | "client_credentials";
+      authorization_url: string;
+      token_url: string;
+      client_id: string;
+      client_secret: string;
+      scopes: string;
+      access_token: string;
+      refresh_token: string;
+    };
 
 export type BodyConfig =
   | { type: "none" }
   | { type: "json"; value: string }
   | { type: "raw"; value: string; content_type: string }
-  | { type: "form_urlencoded"; fields: KeyValue[] };
+  | { type: "form_urlencoded"; fields: KeyValue[] }
+  | { type: "multipart"; fields: MultipartField[] };
 
 export type RequestFile = {
   format_version: 1;
@@ -28,6 +56,7 @@ export type RequestFile = {
   body: BodyConfig;
   timeout_ms: number;
   follow_redirects: boolean;
+  transport: TransportConfig;
 };
 
 export type EnvironmentFile = {
@@ -77,6 +106,45 @@ export type HttpError = {
   message: string;
   details: string | null;
   error_type: string;
+};
+
+export type OAuthResult = {
+  access_token_secret: string;
+  refresh_token_secret: string | null;
+  expires_in: number | null;
+  scope: string | null;
+};
+
+export type ImportResult = {
+  source: string;
+  imported_requests: number;
+  imported_environments: number;
+  warnings: string[];
+  workspace: WorkspaceSnapshot;
+};
+
+export type HistorySettings = {
+  enabled: boolean;
+  max_entries: number;
+};
+
+export type HistorySummary = {
+  id: string;
+  created_at_ms: number;
+  request_name: string;
+  method: string;
+  url: string;
+  status: number;
+  duration_ms: number;
+  size_bytes: number;
+};
+
+export type HistoryEntry = {
+  summary: HistorySummary;
+  status_text: string;
+  headers: ResponseHeader[];
+  body: string;
+  is_json: boolean;
 };
 
 export type SecurityReport = {

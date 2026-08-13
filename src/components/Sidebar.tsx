@@ -9,6 +9,8 @@ type Props = {
   onEnvironmentChange: (path: string) => void;
   onEditEnvironments: () => void;
   onEditSecrets: () => void;
+  onImport: () => void;
+  onHistory: () => void;
   onClose: () => void;
 };
 
@@ -35,6 +37,8 @@ export function Sidebar({
   onEnvironmentChange,
   onEditEnvironments,
   onEditSecrets,
+  onImport,
+  onHistory,
   onClose,
 }: Props) {
   const groups = groupedRequests(workspace.requests);
@@ -71,6 +75,11 @@ export function Sidebar({
         <span aria-hidden="true">▣</span>
         <span><strong>Секреты</strong><small>Системное хранилище ОС</small></span>
       </button>
+
+      <div className="sidebar-tools">
+        <button className="secondary-button" type="button" onClick={onImport}>Импорт</button>
+        <button className="secondary-button" type="button" onClick={onHistory}>История</button>
+      </div>
 
       <div className="sidebar-section-heading">
         <span>Запросы</span>

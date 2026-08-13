@@ -1,10 +1,11 @@
 import { useMemo, useState, type KeyboardEvent } from "react";
+import { open } from "@tauri-apps/plugin-dialog";
 import { recordToRows, rowsToRecord } from "../request-utils";
-import type { AuthConfig, BodyConfig, KeyValue, RequestFile, SecurityReport } from "../types";
+import type { AuthConfig, BodyConfig, KeyValue, MultipartField, ProxyConfig, RequestFile, SecurityReport } from "../types";
 import { KeyValueEditor } from "./KeyValueEditor";
 import { SecurityLens } from "./SecurityLens";
 
-type EditorTab = "query" | "headers" | "auth" | "body";
+type EditorTab = "query" | "headers" | "auth" | "body" | "transport";
 
 type Props = {
   request: RequestFile;
@@ -21,6 +22,9 @@ type Props = {
   onDelete: () => void;
   onSend: () => void;
   onCopyCurl: () => void;
+  onAuthorizeOAuth: () => void;
+  oauthBusy: boolean;
+  oauthStatus: string | null;
 };
 
 const METHODS = ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"];
@@ -31,6 +35,17 @@ function authForType(type: AuthConfig["type"]): AuthConfig {
     case "basic": return { type, username: "", password: "{{secret:PASSWORD}}" };
     case "api_key_header": return { type, name: "X-API-Key", value: "{{secret:API_KEY}}" };
     case "api_key_query": return { type, name: "api_key", value: "{{secret:API_KEY}}" };
+    case "oauth2": return {
+      type,
+      grant_type: "authorization_code_pkce",
+      authorization_url: "",
+      token_url: "",
+      client_id: "",
+      client_secret: "{{secret:OAUTH_CLIENT_SECRET}}",
+      scopes: "",
+      access_token: "{{secret:OAUTH_ACCESS_TOKEN}}",
+      refresh_token: "{{secret:OAUTH_REFRESH_TOKEN}}",
+    };
     default: return { type: "none" };
   }
 }
@@ -40,6 +55,7 @@ function bodyForType(type: BodyConfig["type"]): BodyConfig {
     case "json": return { type, value: "{\n  \"key\": \"value\"\n}" };
     case "raw": return { type, value: "", content_type: "text/plain" };
     case "form_urlencoded": return { type, fields: [] };
+    case "multipart": return { type, fields: [] };
     default: return { type: "none" };
   }
 }
@@ -59,6 +75,9 @@ export function RequestEditor({
   onDelete,
   onSend,
   onCopyCurl,
+  onAuthorizeOAuth,
+  oauthBusy,
+  oauthStatus,
 }: Props) {
   const [tab, setTab] = useState<EditorTab>("query");
   const headerRows = useMemo(() => recordToRows(request.headers), [request.headers]);
@@ -76,6 +95,27 @@ export function RequestEditor({
       event.preventDefault();
       if (!sending && request.url.trim()) onSend();
     }
+  }
+
+  async function pickPath(kind: "file" | "certificate" | "key"): Promise<string | null> {
+    const filters = kind === "certificate"
+      ? [{ name: "Сертификаты PEM", extensions: ["pem", "crt", "cer"] }]
+      : kind === "key"
+        ? [{ name: "Приватные ключи PEM", extensions: ["pem", "key"] }]
+        : undefined;
+    const selected = await open({ multiple: false, directory: false, filters });
+    return typeof selected === "string" ? selected : null;
+  }
+
+  function updateMultipart(index: number, field: MultipartField) {
+    if (request.body.type !== "multipart") return;
+    const fields = [...request.body.fields];
+    fields[index] = field;
+    patch({ body: { type: "multipart", fields } });
+  }
+
+  function updateProxy(proxy: ProxyConfig) {
+    patch({ transport: { ...request.transport, proxy } });
   }
 
   return (
@@ -131,6 +171,7 @@ export function RequestEditor({
         <button className={tab === "headers" ? "active" : ""} type="button" onClick={() => setTab("headers")}>Заголовки <span>{Object.keys(request.headers).length || ""}</span></button>
         <button className={tab === "auth" ? "active" : ""} type="button" onClick={() => setTab("auth")}>Авторизация</button>
         <button className={tab === "body" ? "active" : ""} type="button" onClick={() => setTab("body")}>Тело</button>
+        <button className={tab === "transport" ? "active" : ""} type="button" onClick={() => setTab("transport")}>Сеть</button>
       </div>
 
       <div className="tab-content">
@@ -150,6 +191,7 @@ export function RequestEditor({
                 <option value="basic">Basic Auth</option>
                 <option value="api_key_header">API Key в заголовке</option>
                 <option value="api_key_query">API Key в query</option>
+                <option value="oauth2">OAuth 2.0</option>
               </select>
             </label>
             {request.auth.type === "bearer" && (
@@ -167,6 +209,20 @@ export function RequestEditor({
                 <label className="field"><span>Значение</span><input value={request.auth.value} onChange={(event) => (request.auth.type === "api_key_header" || request.auth.type === "api_key_query") && patch({ auth: { type: request.auth.type, name: request.auth.name, value: event.currentTarget.value } })} placeholder="{{secret:API_KEY}}" /></label>
               </>
             )}
+            {request.auth.type === "oauth2" && (
+              <div className="oauth-editor">
+                <label className="field"><span>Grant type</span><select value={request.auth.grant_type} onChange={(event) => request.auth.type === "oauth2" && patch({ auth: { ...request.auth, grant_type: event.currentTarget.value as "authorization_code_pkce" | "client_credentials" } })}><option value="authorization_code_pkce">Authorization Code + PKCE</option><option value="client_credentials">Client Credentials</option></select></label>
+                {request.auth.grant_type === "authorization_code_pkce" && <label className="field"><span>Authorization URL</span><input value={request.auth.authorization_url} onChange={(event) => request.auth.type === "oauth2" && patch({ auth: { ...request.auth, authorization_url: event.currentTarget.value } })} placeholder="https://id.example.test/oauth/authorize" /></label>}
+                <label className="field"><span>Token URL</span><input value={request.auth.token_url} onChange={(event) => request.auth.type === "oauth2" && patch({ auth: { ...request.auth, token_url: event.currentTarget.value } })} placeholder="https://id.example.test/oauth/token" /></label>
+                <label className="field"><span>Client ID</span><input value={request.auth.client_id} onChange={(event) => request.auth.type === "oauth2" && patch({ auth: { ...request.auth, client_id: event.currentTarget.value } })} /></label>
+                <label className="field"><span>Client secret</span><input value={request.auth.client_secret} onChange={(event) => request.auth.type === "oauth2" && patch({ auth: { ...request.auth, client_secret: event.currentTarget.value } })} placeholder="{{secret:OAUTH_CLIENT_SECRET}}" /></label>
+                <label className="field"><span>Scopes через пробел</span><input value={request.auth.scopes} onChange={(event) => request.auth.type === "oauth2" && patch({ auth: { ...request.auth, scopes: event.currentTarget.value } })} /></label>
+                <label className="field"><span>Access token secret</span><input value={request.auth.access_token} onChange={(event) => request.auth.type === "oauth2" && patch({ auth: { ...request.auth, access_token: event.currentTarget.value } })} /></label>
+                <label className="field"><span>Refresh token secret</span><input value={request.auth.refresh_token} onChange={(event) => request.auth.type === "oauth2" && patch({ auth: { ...request.auth, refresh_token: event.currentTarget.value } })} /></label>
+                <button className="secondary-button" type="button" onClick={onAuthorizeOAuth} disabled={oauthBusy}>{oauthBusy ? "Ожидаю OAuth…" : "Получить токен"}</button>
+                {oauthStatus && <p className="help-text">{oauthStatus}</p>}
+              </div>
+            )}
             <p className="help-text">Для токенов и паролей используй ссылку вида <code>{"{{secret:NAME}}"}</code>.</p>
           </div>
         )}
@@ -179,6 +235,7 @@ export function RequestEditor({
                 <option value="json">JSON</option>
                 <option value="raw">Raw text</option>
                 <option value="form_urlencoded">Form URL-encoded</option>
+                <option value="multipart">Multipart form-data</option>
               </select>
             </label>
             {request.body.type === "json" && <textarea className="code-input" value={request.body.value} onChange={(event) => patch({ body: { type: "json", value: event.currentTarget.value } })} spellCheck={false} aria-label="JSON-тело" />}
@@ -189,6 +246,30 @@ export function RequestEditor({
               </>
             )}
             {request.body.type === "form_urlencoded" && <KeyValueEditor rows={request.body.fields} onChange={(fields) => patch({ body: { type: "form_urlencoded", fields } })} emptyText="Полей формы пока нет" />}
+            {request.body.type === "multipart" && (
+              <div className="multipart-editor">
+                {request.body.fields.map((field, index) => (
+                  <div className="multipart-row" key={index}>
+                    <input type="checkbox" checked={field.enabled} onChange={(event) => updateMultipart(index, { ...field, enabled: event.currentTarget.checked })} aria-label="Включить поле" />
+                    <select value={field.type} onChange={(event) => updateMultipart(index, event.currentTarget.value === "file" ? { type: "file", name: field.name, path: "", content_type: "", enabled: field.enabled } : { type: "text", name: field.name, value: "", enabled: field.enabled })}><option value="text">Текст</option><option value="file">Файл</option></select>
+                    <input value={field.name} onChange={(event) => updateMultipart(index, { ...field, name: event.currentTarget.value })} placeholder="Имя поля" />
+                    {field.type === "text" ? <input value={field.value} onChange={(event) => updateMultipart(index, { ...field, value: event.currentTarget.value })} placeholder="Значение" /> : <><input value={field.path} onChange={(event) => updateMultipart(index, { ...field, path: event.currentTarget.value })} placeholder="Путь к файлу" /><button className="secondary-button" type="button" onClick={() => void pickPath("file").then((path) => path && field.type === "file" && updateMultipart(index, { ...field, path }))}>Выбрать</button></>}
+                    <button className="quiet-icon" type="button" onClick={() => request.body.type === "multipart" && patch({ body: { type: "multipart", fields: request.body.fields.filter((_, itemIndex) => itemIndex !== index) } })}>×</button>
+                  </div>
+                ))}
+                <div className="inline-actions"><button className="secondary-button" type="button" onClick={() => request.body.type === "multipart" && patch({ body: { type: "multipart", fields: [...request.body.fields, { type: "text", name: "", value: "", enabled: true }] } })}>Добавить текст</button><button className="secondary-button" type="button" onClick={() => request.body.type === "multipart" && patch({ body: { type: "multipart", fields: [...request.body.fields, { type: "file", name: "file", path: "", content_type: "", enabled: true }] } })}>Добавить файл</button></div>
+              </div>
+            )}
+          </div>
+        )}
+        {tab === "transport" && (
+          <div className="transport-editor">
+            <label className="field"><span>Proxy</span><select value={request.transport.proxy.type} onChange={(event) => updateProxy(event.currentTarget.value === "system" ? { type: "system" } : event.currentTarget.value === "custom" ? { type: "custom", url: "", username: "", password: "{{secret:PROXY_PASSWORD}}" } : { type: "none" })}><option value="none">Не использовать</option><option value="system">Системный proxy</option><option value="custom">Указать вручную</option></select></label>
+            {request.transport.proxy.type === "custom" && <><label className="field"><span>Proxy URL</span><input value={request.transport.proxy.url} onChange={(event) => request.transport.proxy.type === "custom" && updateProxy({ ...request.transport.proxy, url: event.currentTarget.value })} placeholder="http://proxy.example.test:8080" /></label><label className="field"><span>Имя пользователя</span><input value={request.transport.proxy.username} onChange={(event) => request.transport.proxy.type === "custom" && updateProxy({ ...request.transport.proxy, username: event.currentTarget.value })} /></label><label className="field"><span>Пароль</span><input value={request.transport.proxy.password} onChange={(event) => request.transport.proxy.type === "custom" && updateProxy({ ...request.transport.proxy, password: event.currentTarget.value })} /></label></>}
+            <label className="field path-field"><span>Custom CA (PEM)</span><div><input value={request.transport.custom_ca_path} onChange={(event) => patch({ transport: { ...request.transport, custom_ca_path: event.currentTarget.value } })} /><button className="secondary-button" type="button" onClick={() => void pickPath("certificate").then((path) => path && patch({ transport: { ...request.transport, custom_ca_path: path } }))}>Выбрать</button></div></label>
+            <label className="field path-field"><span>Клиентский сертификат (PEM)</span><div><input value={request.transport.client_certificate_path} onChange={(event) => patch({ transport: { ...request.transport, client_certificate_path: event.currentTarget.value } })} /><button className="secondary-button" type="button" onClick={() => void pickPath("certificate").then((path) => path && patch({ transport: { ...request.transport, client_certificate_path: path } }))}>Выбрать</button></div></label>
+            <label className="field path-field"><span>Приватный ключ (PEM)</span><div><input value={request.transport.client_key_path} onChange={(event) => patch({ transport: { ...request.transport, client_key_path: event.currentTarget.value } })} /><button className="secondary-button" type="button" onClick={() => void pickPath("key").then((path) => path && patch({ transport: { ...request.transport, client_key_path: path } }))}>Выбрать</button></div></label>
+            <p className="help-text">ReqVault не отключает проверку TLS. Для mTLS нужны отдельные PEM-файлы сертификата и незашифрованного приватного ключа.</p>
           </div>
         )}
       </div>
