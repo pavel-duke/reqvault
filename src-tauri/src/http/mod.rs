@@ -715,4 +715,61 @@ mod tests {
         assert!(visible_error.contains("***REDACTED***"));
         assert!(!visible_error.contains(TEST_SECRET));
     }
+
+    #[tokio::test]
+    async fn sends_multipart_text_and_file() {
+        let response = "HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n";
+        let (url, received) = server(response, None).await.unwrap();
+        let file_path =
+            std::env::temp_dir().join(format!("reqvault-upload-{}.txt", Uuid::new_v4()));
+        fs::write(&file_path, "multipart-test-file").unwrap();
+        let request = RequestFile {
+            method: "POST".to_string(),
+            url,
+            body: BodyConfig::Multipart {
+                fields: vec![
+                    crate::models::MultipartField::Text {
+                        name: "description".to_string(),
+                        value: "test upload".to_string(),
+                        enabled: true,
+                    },
+                    crate::models::MultipartField::File {
+                        name: "file".to_string(),
+                        path: file_path.to_string_lossy().into_owned(),
+                        content_type: "text/plain".to_string(),
+                        enabled: true,
+                    },
+                ],
+            },
+            ..RequestFile::default()
+        };
+        let result = send(&request, None, &mut unavailable_secret).await.unwrap();
+        let raw = received.await.unwrap();
+        assert_eq!(result.status, 200);
+        assert!(raw.contains("name=\"description\""));
+        assert!(raw.contains("test upload"));
+        assert!(raw.contains("name=\"file\""));
+        assert!(raw.contains("multipart-test-file"));
+        fs::remove_file(file_path).unwrap();
+    }
+
+    #[test]
+    fn validates_proxy_and_tls_files() {
+        let mut request = RequestFile {
+            url: "https://api.example.test".to_string(),
+            ..RequestFile::default()
+        };
+        request.transport.proxy = ProxyConfig::Custom {
+            url: "http://127.0.0.1:8080".to_string(),
+            username: String::new(),
+            password: String::new(),
+        };
+        assert!(prepare(&request, None, &mut unavailable_secret).is_ok());
+
+        request.transport.client_certificate_path = "certificate.pem".to_string();
+        assert!(matches!(
+            prepare(&request, None, &mut unavailable_secret),
+            Err(PrepareError::IncompleteIdentity)
+        ));
+    }
 }

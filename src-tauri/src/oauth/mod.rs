@@ -300,7 +300,32 @@ fn exact_secret_name(value: &str, label: &str) -> Result<String, String> {
 
 #[cfg(test)]
 mod tests {
+    use std::{cell::RefCell, collections::BTreeMap};
+
     use super::*;
+
+    #[derive(Default)]
+    struct MemoryBackend {
+        values: RefCell<BTreeMap<String, String>>,
+    }
+
+    impl SecretBackend for MemoryBackend {
+        fn get(&self, name: &str) -> Result<Option<String>, String> {
+            Ok(self.values.borrow().get(name).cloned())
+        }
+
+        fn set(&self, name: &str, value: &str) -> Result<(), String> {
+            self.values
+                .borrow_mut()
+                .insert(name.to_string(), value.to_string());
+            Ok(())
+        }
+
+        fn delete(&self, name: &str) -> Result<(), String> {
+            self.values.borrow_mut().remove(name);
+            Ok(())
+        }
+    }
 
     #[test]
     fn accepts_only_https_or_local_oauth_endpoints() {
@@ -316,5 +341,54 @@ mod tests {
             "OAUTH_ACCESS_TOKEN"
         );
         assert!(exact_secret_name("plain-token", "access token").is_err());
+    }
+
+    #[tokio::test]
+    async fn client_credentials_tokens_go_directly_to_secret_storage() {
+        const TEST_SECRET: &str = "REQVAULT_TEST_SECRET_DO_NOT_LEAK_123456";
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            let (mut socket, _) = listener.accept().await.unwrap();
+            let mut buffer = vec![0_u8; 4096];
+            let read = socket.read(&mut buffer).await.unwrap();
+            let raw = String::from_utf8_lossy(&buffer[..read]);
+            assert!(raw.contains("grant_type=client_credentials"));
+            let body = format!(
+                "{{\"access_token\":\"{TEST_SECRET}\",\"refresh_token\":\"refresh-value\",\"expires_in\":3600}}"
+            );
+            let response = format!(
+                "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{body}",
+                body.len()
+            );
+            socket.write_all(response.as_bytes()).await.unwrap();
+        });
+        let auth = AuthConfig::OAuth2 {
+            grant_type: "client_credentials".to_string(),
+            authorization_url: String::new(),
+            token_url: format!("http://127.0.0.1:{}/token", address.port()),
+            client_id: "reqvault-test".to_string(),
+            client_secret: String::new(),
+            scopes: "read".to_string(),
+            access_token: "{{secret:OAUTH_ACCESS_TOKEN}}".to_string(),
+            refresh_token: "{{secret:OAUTH_REFRESH_TOKEN}}".to_string(),
+        };
+        let backend = MemoryBackend::default();
+        let result = authorize(&auth, None, &backend).await.unwrap();
+        server.await.unwrap();
+        assert_eq!(result.access_token_secret, "OAUTH_ACCESS_TOKEN");
+        assert_eq!(
+            result.refresh_token_secret.as_deref(),
+            Some("OAUTH_REFRESH_TOKEN")
+        );
+        assert_eq!(
+            backend.get("OAUTH_ACCESS_TOKEN").unwrap().as_deref(),
+            Some(TEST_SECRET)
+        );
+        assert!(
+            !serde_json::to_string(&result)
+                .unwrap()
+                .contains(TEST_SECRET)
+        );
     }
 }
