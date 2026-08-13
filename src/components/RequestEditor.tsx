@@ -23,6 +23,7 @@ type Props = {
   onSend: () => void;
   onCopyCurl: () => void;
   onAuthorizeOAuth: () => void;
+  onRefreshOAuth: () => void;
   oauthBusy: boolean;
   oauthStatus: string | null;
 };
@@ -76,6 +77,7 @@ export function RequestEditor({
   onSend,
   onCopyCurl,
   onAuthorizeOAuth,
+  onRefreshOAuth,
   oauthBusy,
   oauthStatus,
 }: Props) {
@@ -219,7 +221,10 @@ export function RequestEditor({
                 <label className="field"><span>Scopes через пробел</span><input value={request.auth.scopes} onChange={(event) => request.auth.type === "oauth2" && patch({ auth: { ...request.auth, scopes: event.currentTarget.value } })} /></label>
                 <label className="field"><span>Access token secret</span><input value={request.auth.access_token} onChange={(event) => request.auth.type === "oauth2" && patch({ auth: { ...request.auth, access_token: event.currentTarget.value } })} /></label>
                 <label className="field"><span>Refresh token secret</span><input value={request.auth.refresh_token} onChange={(event) => request.auth.type === "oauth2" && patch({ auth: { ...request.auth, refresh_token: event.currentTarget.value } })} /></label>
-                <button className="secondary-button" type="button" onClick={onAuthorizeOAuth} disabled={oauthBusy}>{oauthBusy ? "Ожидаю OAuth…" : "Получить токен"}</button>
+                <div className="inline-actions">
+                  <button className="secondary-button" type="button" onClick={onAuthorizeOAuth} disabled={oauthBusy}>{oauthBusy ? "Выполняю OAuth…" : "Получить токен"}</button>
+                  <button className="secondary-button" type="button" onClick={onRefreshOAuth} disabled={oauthBusy || !request.auth.refresh_token.trim()}>Обновить token</button>
+                </div>
                 {oauthStatus && <p className="help-text">{oauthStatus}</p>}
               </div>
             )}

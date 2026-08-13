@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { open } from "@tauri-apps/plugin-dialog";
+import { open, save } from "@tauri-apps/plugin-dialog";
 import { writeText } from "@tauri-apps/plugin-clipboard-manager";
 import {
   createWorkspace,
@@ -8,8 +8,11 @@ import {
   getHistoryEntry,
   getHistorySettings,
   errorMessage,
+  exportWorkspace,
   generateSafeCurl,
   importCollection,
+  importCurl,
+  importWorkspace,
   inspectRequest,
   listHistory,
   listSecrets,
@@ -18,21 +21,25 @@ import {
   removeHistoryEntry,
   removeRequest,
   removeSecret,
+  refreshOAuth,
   saveEnvironment,
   sendHttpRequest,
   saveRequest,
   saveSecret,
+  saveWorkspaceConfig,
   updateHistorySettings,
 } from "./api";
 import { EnvironmentDialog } from "./components/EnvironmentDialog";
+import { CurlImportDialog } from "./components/CurlImportDialog";
 import { HistoryDialog } from "./components/HistoryDialog";
 import { RequestEditor } from "./components/RequestEditor";
 import { ResponseViewer } from "./components/ResponseViewer";
 import { SecretDialog } from "./components/SecretDialog";
 import { Sidebar } from "./components/Sidebar";
 import { StartScreen } from "./components/StartScreen";
+import { WorkspaceSettingsDialog } from "./components/WorkspaceSettingsDialog";
 import { collectionFromPath, emptyRequest } from "./request-utils";
-import type { EnvironmentFile, HistorySettings, HistorySummary, HttpError, HttpResponse, RequestFile, RequestSummary, SecurityReport, Theme, WorkspaceSnapshot } from "./types";
+import type { EnvironmentFile, HistorySettings, HistorySummary, HttpError, HttpResponse, RequestFile, RequestSummary, SecurityReport, Theme, WorkspaceConfig, WorkspaceSnapshot } from "./types";
 import "./App.css";
 
 const LAST_WORKSPACE_KEY = "reqvault.last-workspace";
@@ -66,6 +73,10 @@ function App() {
   const [oauthBusy, setOauthBusy] = useState(false);
   const [oauthStatus, setOauthStatus] = useState<string | null>(null);
   const [importStatus, setImportStatus] = useState<string | null>(null);
+  const [curlOpen, setCurlOpen] = useState(false);
+  const [curlError, setCurlError] = useState<string | null>(null);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [settingsError, setSettingsError] = useState<string | null>(null);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [historySettings, setHistorySettings] = useState<HistorySettings>({ enabled: false, max_entries: 50 });
   const [historyEntries, setHistoryEntries] = useState<HistorySummary[]>([]);
@@ -149,7 +160,7 @@ function App() {
     setSending(true);
     setHttpError(null);
     try {
-      setResponse(await sendHttpRequest(draft, environment, workspace.config.id));
+      setResponse(await sendHttpRequest(draft, environment, workspace.config.id, workspace.root_path));
     } catch (caught) {
       setResponse(null);
       if (caught && typeof caught === "object" && "message" in caught) {
@@ -233,6 +244,21 @@ function App() {
     }
   }
 
+  async function refreshCurrentOAuth() {
+    if (!workspace || !draft || draft.auth.type !== "oauth2") return;
+    const environment = workspace.environments.find((item) => item.relative_path === activeEnvironment)?.environment ?? null;
+    setOauthBusy(true);
+    setOauthStatus(null);
+    try {
+      const result = await refreshOAuth(draft, environment, workspace.config.id);
+      setOauthStatus(`Access token обновлён и сохранён как ${result.access_token_secret}.`);
+    } catch (caught) {
+      setOauthStatus(errorMessage(caught));
+    } finally {
+      setOauthBusy(false);
+    }
+  }
+
   async function importFile() {
     if (!workspace) return;
     setError(null);
@@ -247,6 +273,78 @@ function App() {
       setImportStatus(`${result.source}: импортировано запросов ${result.imported_requests}, окружений ${result.imported_environments}.${warnings}`);
     } catch (caught) {
       setError(errorMessage(caught));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function importCurlCommand(command: string) {
+    if (!workspace) return;
+    setBusy(true);
+    setCurlError(null);
+    try {
+      const result = await importCurl(workspace.root_path, command);
+      applyWorkspace(result.workspace);
+      const warnings = result.warnings.length ? `\n${result.warnings.join("\n")}` : "";
+      setImportStatus(`cURL: запрос импортирован.${warnings}`);
+      setCurlOpen(false);
+    } catch (caught) {
+      setCurlError(errorMessage(caught));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function exportCurrentWorkspace() {
+    if (!workspace) return;
+    setError(null);
+    const destination = await save({
+      title: "Экспортировать workspace",
+      defaultPath: `${workspace.config.name}.reqvault.json`,
+      filters: [{ name: "ReqVault bundle", extensions: ["json"] }],
+    });
+    if (!destination) return;
+    setBusy(true);
+    try {
+      await exportWorkspace(workspace.root_path, destination);
+      setImportStatus(`Workspace экспортирован: ${destination}`);
+    } catch (caught) {
+      setError(errorMessage(caught));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function importWorkspaceBundle() {
+    setError(null);
+    const source = await open({ multiple: false, directory: false, title: "Открыть ReqVault bundle", filters: [{ name: "ReqVault bundle", extensions: ["json"] }] });
+    if (typeof source !== "string") return;
+    const target = await open({ multiple: false, directory: true, title: "Выбери пустую папку для workspace" });
+    if (typeof target !== "string") return;
+    setBusy(true);
+    try {
+      const snapshot = await importWorkspace(source, target);
+      applyWorkspace(snapshot);
+      setDraft(null);
+      setSelectedPath(null);
+      setImportStatus("Workspace импортирован. Секреты нужно добавить отдельно.");
+    } catch (caught) {
+      setError(errorMessage(caught));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function persistWorkspaceConfig(config: WorkspaceConfig) {
+    if (!workspace) return;
+    setBusy(true);
+    setSettingsError(null);
+    try {
+      const saved = await saveWorkspaceConfig(workspace.root_path, config);
+      setWorkspace({ ...workspace, config: saved });
+      setSettingsOpen(false);
+    } catch (caught) {
+      setSettingsError(errorMessage(caught));
     } finally {
       setBusy(false);
     }
@@ -373,7 +471,7 @@ function App() {
       </header>
 
       {!workspace ? (
-        <StartScreen busy={busy} error={error} onCreate={() => void pickWorkspace("create")} onOpen={() => void pickWorkspace("open")} />
+        <StartScreen busy={busy} error={error} onCreate={() => void pickWorkspace("create")} onOpen={() => void pickWorkspace("open")} onImport={() => void importWorkspaceBundle()} />
       ) : (
         <div className="workspace-shell">
           <Sidebar
@@ -386,6 +484,9 @@ function App() {
             onEditEnvironments={() => { setEnvironmentError(null); setEnvironmentsOpen(true); }}
             onEditSecrets={() => void openSecrets()}
             onImport={() => void importFile()}
+            onImportCurl={() => { setCurlError(null); setCurlOpen(true); }}
+            onExport={() => void exportCurrentWorkspace()}
+            onSettings={() => { setSettingsError(null); setSettingsOpen(true); }}
             onHistory={() => void openHistory()}
             onClose={closeWorkspace}
           />
@@ -393,7 +494,7 @@ function App() {
             {draft ? (
               <div className="request-workbench">
                 {importStatus && <div className="success-banner">{importStatus}</div>}
-                <RequestEditor request={draft} relativePath={selectedPath} collection={collection} saving={busy} sending={sending} error={error} securityReport={securityReport} copyStatus={copyStatus} onChange={setDraft} onCollectionChange={setCollection} onSave={() => void persistRequest()} onDelete={() => void deleteCurrentRequest()} onSend={() => void sendCurrentRequest()} onCopyCurl={() => void copyCurl()} onAuthorizeOAuth={() => void authorizeCurrentOAuth()} oauthBusy={oauthBusy} oauthStatus={oauthStatus} />
+                <RequestEditor request={draft} relativePath={selectedPath} collection={collection} saving={busy} sending={sending} error={error} securityReport={securityReport} copyStatus={copyStatus} onChange={setDraft} onCollectionChange={setCollection} onSave={() => void persistRequest()} onDelete={() => void deleteCurrentRequest()} onSend={() => void sendCurrentRequest()} onCopyCurl={() => void copyCurl()} onAuthorizeOAuth={() => void authorizeCurrentOAuth()} onRefreshOAuth={() => void refreshCurrentOAuth()} oauthBusy={oauthBusy} oauthStatus={oauthStatus} />
                 <ResponseViewer response={response} error={httpError} loading={sending} />
               </div>
             ) : (
@@ -413,6 +514,14 @@ function App() {
 
       {workspace && historyOpen && (
         <HistoryDialog settings={historySettings} entries={historyEntries} busy={historyBusy} error={historyError} onSettingsChange={persistHistorySettings} onLoad={(id) => getHistoryEntry(workspace.config.id, id)} onDelete={deleteHistory} onClear={clearSavedHistory} onClose={() => setHistoryOpen(false)} />
+      )}
+
+      {workspace && curlOpen && (
+        <CurlImportDialog busy={busy} error={curlError} onImport={(command) => void importCurlCommand(command)} onClose={() => setCurlOpen(false)} />
+      )}
+
+      {workspace && settingsOpen && (
+        <WorkspaceSettingsDialog config={workspace.config} busy={busy} error={settingsError} onSave={(config) => void persistWorkspaceConfig(config)} onClose={() => setSettingsOpen(false)} />
       )}
     </main>
   );

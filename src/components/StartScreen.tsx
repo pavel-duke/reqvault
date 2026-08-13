@@ -3,9 +3,10 @@ type Props = {
   error: string | null;
   onCreate: () => void;
   onOpen: () => void;
+  onImport: () => void;
 };
 
-export function StartScreen({ busy, error, onCreate, onOpen }: Props) {
+export function StartScreen({ busy, error, onCreate, onOpen, onImport }: Props) {
   return (
     <section className="start-screen">
       <div className="start-card">
@@ -22,6 +23,9 @@ export function StartScreen({ busy, error, onCreate, onOpen }: Props) {
           </button>
           <button className="secondary-button" type="button" onClick={onOpen} disabled={busy}>
             Открыть папку
+          </button>
+          <button className="text-button" type="button" onClick={onImport} disabled={busy}>
+            Импортировать bundle
           </button>
         </div>
       </div>

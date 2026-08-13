@@ -13,6 +13,7 @@ import type {
   RequestSummary,
   SecurityReport,
   WorkspaceSnapshot,
+  WorkspaceConfig,
 } from "./types";
 
 export function createWorkspace(path: string): Promise<WorkspaceSnapshot> {
@@ -41,8 +42,35 @@ export function authorizeOAuth(
   return invoke("authorize_oauth", { request, environment, workspaceId });
 }
 
+export function refreshOAuth(
+  request: RequestFile,
+  environment: EnvironmentFile | null,
+  workspaceId: string,
+): Promise<OAuthResult> {
+  return invoke("refresh_oauth", { request, environment, workspaceId });
+}
+
 export function importCollection(workspacePath: string, filePath: string): Promise<ImportResult> {
   return invoke("import_collection", { workspacePath, filePath });
+}
+
+export function importCurl(workspacePath: string, command: string): Promise<ImportResult> {
+  return invoke("import_curl", { workspacePath, command });
+}
+
+export function exportWorkspace(workspacePath: string, destinationPath: string): Promise<void> {
+  return invoke("export_workspace", { workspacePath, destinationPath });
+}
+
+export function importWorkspace(sourcePath: string, targetPath: string): Promise<WorkspaceSnapshot> {
+  return invoke("import_workspace", { sourcePath, targetPath });
+}
+
+export function saveWorkspaceConfig(
+  workspacePath: string,
+  config: WorkspaceConfig,
+): Promise<WorkspaceConfig> {
+  return invoke("save_workspace_config", { workspacePath, config });
 }
 
 export function getHistorySettings(workspaceId: string): Promise<HistorySettings> {
@@ -76,9 +104,10 @@ export async function sendHttpRequest(
   request: RequestFile,
   environment: EnvironmentFile | null,
   workspaceId: string,
+  workspacePath: string,
 ): Promise<HttpResponse> {
   try {
-    return await invoke("send_request", { request, environment, workspaceId });
+    return await invoke("send_request", { request, environment, workspaceId, workspacePath });
   } catch (error) {
     throw error as HttpError;
   }

@@ -10,6 +10,9 @@ type Props = {
   onEditEnvironments: () => void;
   onEditSecrets: () => void;
   onImport: () => void;
+  onImportCurl: () => void;
+  onExport: () => void;
+  onSettings: () => void;
   onHistory: () => void;
   onClose: () => void;
 };
@@ -38,6 +41,9 @@ export function Sidebar({
   onEditEnvironments,
   onEditSecrets,
   onImport,
+  onImportCurl,
+  onExport,
+  onSettings,
   onHistory,
   onClose,
 }: Props) {
@@ -77,8 +83,13 @@ export function Sidebar({
       </button>
 
       <div className="sidebar-tools">
-        <button className="secondary-button" type="button" onClick={onImport}>Импорт</button>
+        <button className="secondary-button" type="button" onClick={onImport}>Файл</button>
+        <button className="secondary-button" type="button" onClick={onImportCurl}>cURL</button>
+        <button className="secondary-button" type="button" onClick={onExport}>Экспорт</button>
         <button className="secondary-button" type="button" onClick={onHistory}>История</button>
+        <button className="secondary-button guard-button" type="button" onClick={onSettings}>
+          Защита{workspace.config.production_guard.enabled ? " •" : ""}
+        </button>
       </div>
 
       <div className="sidebar-section-heading">

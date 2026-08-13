@@ -75,13 +75,24 @@ export type EnvironmentSummary = {
   environment: EnvironmentFile;
 };
 
+export type ProductionGuard = {
+  enabled: boolean;
+  require_https: boolean;
+  allowed_hosts: string[];
+  blocked_methods: string[];
+  block_secrets_in_url: boolean;
+};
+
+export type WorkspaceConfig = {
+  format_version: 1;
+  id: string;
+  name: string;
+  production_guard: ProductionGuard;
+};
+
 export type WorkspaceSnapshot = {
   root_path: string;
-  config: {
-    format_version: 1;
-    id: string;
-    name: string;
-  };
+  config: WorkspaceConfig;
   requests: RequestSummary[];
   environments: EnvironmentSummary[];
 };

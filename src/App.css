@@ -191,6 +191,7 @@ textarea:focus-visible {
 
 .start-actions {
   display: flex;
+  flex-wrap: wrap;
   justify-content: center;
   gap: 10px;
   margin-top: 26px;
@@ -1124,11 +1125,16 @@ code {
 }
 
 .sidebar-tools {
+  flex-wrap: wrap;
   padding: 0 14px 14px;
 }
 
 .sidebar-tools button {
-  flex: 1;
+  flex: 1 1 calc(50% - 4px);
+}
+
+.sidebar-tools .guard-button {
+  flex-basis: 100%;
 }
 
 .oauth-editor,
@@ -1248,6 +1254,57 @@ code {
   margin-top: 24px;
   padding-top: 15px;
   border-top: 1px solid var(--border);
+}
+
+.curl-dialog,
+.settings-dialog {
+  overflow: auto;
+}
+
+.curl-dialog > .help-text,
+.curl-dialog > .error-banner,
+.settings-dialog > .help-text,
+.settings-dialog > .error-banner,
+.settings-dialog > .check-field,
+.settings-dialog > .guard-grid {
+  margin-right: 18px;
+  margin-left: 18px;
+}
+
+.curl-input {
+  width: calc(100% - 36px);
+  min-height: 240px;
+  margin: 0 18px;
+  resize: vertical;
+}
+
+.curl-dialog > .modal-actions,
+.settings-dialog > .modal-actions {
+  margin: 24px 18px 18px;
+}
+
+.guard-master {
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface-muted);
+  font-weight: 650;
+}
+
+.guard-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  margin-top: 18px;
+}
+
+.guard-grid .field {
+  grid-column: 1 / -1;
+}
+
+.guard-grid textarea {
+  min-height: 95px;
+  resize: vertical;
 }
 
 .response-viewer {
