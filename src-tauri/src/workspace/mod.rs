@@ -486,9 +486,11 @@ mod tests {
         assert_eq!(created.config.name, "Тестовый API");
         assert_eq!(created.environments.len(), 1);
 
-        let mut request = RequestFile::default();
-        request.name = "Получить пользователя".to_string();
-        request.url = "{{BASE_URL}}/users".to_string();
+        let mut request = RequestFile {
+            name: "Получить пользователя".to_string(),
+            url: "{{BASE_URL}}/users".to_string(),
+            ..RequestFile::default()
+        };
         request.headers.insert(
             "Authorization".to_string(),
             "Bearer {{secret:API_TOKEN}}".to_string(),

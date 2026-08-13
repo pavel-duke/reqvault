@@ -1,3 +1,4 @@
+pub mod cli;
 mod commands;
 mod guard;
 mod history;
@@ -6,6 +7,7 @@ mod importer;
 mod models;
 mod oauth;
 mod redaction;
+mod runner;
 mod secrets;
 mod security;
 mod variables;
@@ -37,6 +39,7 @@ pub fn run() {
             commands::importer::import_curl,
             commands::oauth::authorize_oauth,
             commands::oauth::refresh_oauth,
+            commands::runner::run_collection,
             commands::secrets::list_secrets,
             commands::secrets::save_secret,
             commands::secrets::delete_secret,

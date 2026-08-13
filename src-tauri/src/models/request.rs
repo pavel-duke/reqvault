@@ -3,6 +3,7 @@ use std::collections::BTreeMap;
 use serde::{Deserialize, Serialize};
 
 use super::FORMAT_VERSION;
+use super::ResponseAssertion;
 
 fn default_format_version() -> u32 {
     FORMAT_VERSION
@@ -155,6 +156,8 @@ pub struct RequestFile {
     pub follow_redirects: bool,
     #[serde(default)]
     pub transport: TransportConfig,
+    #[serde(default)]
+    pub tests: Vec<ResponseAssertion>,
 }
 
 impl Default for RequestFile {
@@ -171,6 +174,7 @@ impl Default for RequestFile {
             timeout_ms: default_timeout_ms(),
             follow_redirects: true,
             transport: TransportConfig::default(),
+            tests: Vec::new(),
         }
     }
 }
