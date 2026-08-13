@@ -629,16 +629,15 @@ fn openapi_body(operation: &Value) -> BodyConfig {
             };
         }
     }
-    if let Some(parameters) = operation.get("parameters").and_then(Value::as_array) {
-        if let Some(body) = parameters
+    if let Some(parameters) = operation.get("parameters").and_then(Value::as_array)
+        && let Some(body) = parameters
             .iter()
             .find(|item| item.get("in").and_then(Value::as_str) == Some("body"))
-        {
-            let value = schema_example(body.get("schema").unwrap_or(&Value::Null));
-            return BodyConfig::Json {
-                value: serde_json::to_string_pretty(&value).unwrap_or_else(|_| "{}".to_string()),
-            };
-        }
+    {
+        let value = schema_example(body.get("schema").unwrap_or(&Value::Null));
+        return BodyConfig::Json {
+            value: serde_json::to_string_pretty(&value).unwrap_or_else(|_| "{}".to_string()),
+        };
     }
     BodyConfig::None
 }
@@ -723,5 +722,60 @@ fn scalar_string(value: &Value) -> String {
         Value::Bool(value) => value.to_string(),
         Value::Number(value) => value.to_string(),
         _ => serde_json::to_string(value).unwrap_or_default(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const TEST_SECRET: &str = "REQVAULT_TEST_SECRET_DO_NOT_LEAK_123456";
+
+    #[test]
+    fn imports_postman_without_plain_credentials() {
+        let source = serde_json::json!({
+            "info": { "name": "Users", "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json" },
+            "item": [{
+                "name": "Get user",
+                "request": {
+                    "method": "GET",
+                    "url": { "raw": "https://api.example.test/users?page=2", "query": [{ "key": "page", "value": "2" }] },
+                    "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": TEST_SECRET }] }
+                }
+            }]
+        });
+        let parsed = parse_postman(&source).unwrap();
+        assert_eq!(parsed.requests.len(), 1);
+        let request = &parsed.requests[0].1;
+        assert_eq!(request.url, "https://api.example.test/users");
+        assert_eq!(request.query[0].value, "2");
+        let yaml = serde_yaml::to_string(request).unwrap();
+        assert!(yaml.contains("{{secret:IMPORTED_TOKEN}}"));
+        assert!(!yaml.contains(TEST_SECRET));
+    }
+
+    #[test]
+    fn imports_openapi_json_and_yaml() {
+        for source in [
+            r#"{"openapi":"3.0.3","info":{"title":"Pets"},"servers":[{"url":"https://api.example.test"}],"paths":{"/pets/{id}":{"get":{"summary":"Get pet","parameters":[{"in":"query","name":"expand","example":"owner"}]}}}}"#,
+            r#"openapi: 3.0.3
+info:
+  title: Pets
+servers:
+  - url: https://api.example.test
+paths:
+  /pets/{id}:
+    get:
+      summary: Get pet
+"#,
+        ] {
+            let value: Value = serde_yaml::from_str(source).unwrap();
+            let parsed = parse_openapi(&value).unwrap();
+            assert_eq!(parsed.requests.len(), 1);
+            assert_eq!(
+                parsed.requests[0].1.url,
+                "https://api.example.test/pets/{{ID}}"
+            );
+        }
     }
 }

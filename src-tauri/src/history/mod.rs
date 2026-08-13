@@ -86,7 +86,7 @@ pub fn list(root: &Path, workspace_id: &str) -> Result<Vec<HistorySummary>, Stri
         .into_iter()
         .filter_map(|path| read_entry(&path).ok().map(|entry| entry.summary))
         .collect::<Vec<_>>();
-    entries.sort_by(|left, right| right.created_at_ms.cmp(&left.created_at_ms));
+    entries.sort_by_key(|entry| std::cmp::Reverse(entry.created_at_ms));
     Ok(entries)
 }
 
@@ -174,4 +174,61 @@ fn enforce_limit(folder: &Path, limit: usize) -> Result<(), String> {
         fs::remove_file(path).map_err(|_| "Не удалось применить лимит истории".to_string())?;
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn temp_root() -> PathBuf {
+        let path = std::env::temp_dir().join(format!("reqvault-history-{}", Uuid::new_v4()));
+        fs::create_dir_all(&path).unwrap();
+        path
+    }
+
+    fn response(index: usize) -> HttpResponse {
+        HttpResponse {
+            request_id: Uuid::new_v4().to_string(),
+            status: 200,
+            status_text: "OK".to_string(),
+            duration_ms: index as u128,
+            size_bytes: 2,
+            headers: Vec::new(),
+            body: "{}".to_string(),
+            is_json: true,
+        }
+    }
+
+    #[test]
+    fn history_is_opt_in_and_respects_limit() {
+        let root = temp_root();
+        let workspace_id = Uuid::new_v4().to_string();
+        let request = RequestFile {
+            url: "https://api.example.test/{{secret:TOKEN}}".to_string(),
+            ..RequestFile::default()
+        };
+        record(&root, &workspace_id, &request, &response(0)).unwrap();
+        assert!(list(&root, &workspace_id).unwrap().is_empty());
+
+        set_settings(
+            &root,
+            &workspace_id,
+            HistorySettings {
+                enabled: true,
+                max_entries: 2,
+            },
+        )
+        .unwrap();
+        for index in 1..=3 {
+            record(&root, &workspace_id, &request, &response(index)).unwrap();
+        }
+        let saved = list(&root, &workspace_id).unwrap();
+        assert_eq!(saved.len(), 2);
+        assert!(saved.iter().all(|item| !item.url.contains("{{secret:")));
+        let loaded = get(&root, &workspace_id, &saved[0].id).unwrap();
+        assert_eq!(loaded.summary.id, saved[0].id);
+        clear(&root, &workspace_id).unwrap();
+        assert!(list(&root, &workspace_id).unwrap().is_empty());
+        fs::remove_dir_all(root).unwrap();
+    }
 }

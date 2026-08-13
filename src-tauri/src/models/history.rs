@@ -37,7 +37,6 @@ pub struct HistorySummary {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct HistoryEntry {
-    #[serde(flatten)]
     pub summary: HistorySummary,
     pub status_text: String,
     pub headers: Vec<ResponseHeader>,

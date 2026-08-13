@@ -297,3 +297,24 @@ fn exact_secret_name(value: &str, label: &str) -> Result<String, String> {
         ))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn accepts_only_https_or_local_oauth_endpoints() {
+        assert!(validate_endpoint("https://id.example.test/oauth", "URL").is_ok());
+        assert!(validate_endpoint("http://127.0.0.1:3000/oauth", "URL").is_ok());
+        assert!(validate_endpoint("http://id.example.test/oauth", "URL").is_err());
+    }
+
+    #[test]
+    fn token_destination_must_be_secret_reference() {
+        assert_eq!(
+            exact_secret_name("{{secret:OAUTH_ACCESS_TOKEN}}", "access token").unwrap(),
+            "OAUTH_ACCESS_TOKEN"
+        );
+        assert!(exact_secret_name("plain-token", "access token").is_err());
+    }
+}

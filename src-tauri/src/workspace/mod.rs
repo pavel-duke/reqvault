@@ -451,4 +451,21 @@ mod tests {
         assert!(!yaml.contains(TEST_SECRET));
         fs::remove_dir_all(path).unwrap();
     }
+
+    #[test]
+    fn rejects_plain_credentials() {
+        let path = temp_workspace();
+        create(&path, None).unwrap();
+        let request = RequestFile {
+            auth: crate::models::AuthConfig::Bearer {
+                token: "plain-token".to_string(),
+            },
+            ..RequestFile::default()
+        };
+        assert!(matches!(
+            save_request(&path, None, None, &request),
+            Err(WorkspaceError::UnsafeCredential(_))
+        ));
+        fs::remove_dir_all(path).unwrap();
+    }
 }
