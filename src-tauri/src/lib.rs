@@ -1,4 +1,5 @@
 mod commands;
+mod guard;
 mod history;
 mod http;
 mod importer;
@@ -18,6 +19,9 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             commands::workspace::create_workspace,
             commands::workspace::open_workspace,
+            commands::workspace::save_workspace_config,
+            commands::workspace::export_workspace,
+            commands::workspace::import_workspace,
             commands::workspace::save_request,
             commands::workspace::delete_request,
             commands::workspace::save_environment,
@@ -30,7 +34,9 @@ pub fn run() {
             commands::history::delete_history_entry,
             commands::history::clear_history,
             commands::importer::import_collection,
+            commands::importer::import_curl,
             commands::oauth::authorize_oauth,
+            commands::oauth::refresh_oauth,
             commands::secrets::list_secrets,
             commands::secrets::save_secret,
             commands::secrets::delete_secret,

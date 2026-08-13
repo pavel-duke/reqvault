@@ -1,7 +1,10 @@
 use std::path::Path;
 
 use crate::{
-    models::{EnvironmentFile, EnvironmentSummary, RequestFile, RequestSummary, WorkspaceSnapshot},
+    models::{
+        EnvironmentFile, EnvironmentSummary, RequestFile, RequestSummary, WorkspaceConfig,
+        WorkspaceSnapshot,
+    },
     workspace,
 };
 
@@ -13,6 +16,29 @@ pub fn create_workspace(path: String, name: Option<String>) -> Result<WorkspaceS
 #[tauri::command]
 pub fn open_workspace(path: String) -> Result<WorkspaceSnapshot, String> {
     workspace::open(Path::new(&path)).map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub fn save_workspace_config(
+    workspace_path: String,
+    config: WorkspaceConfig,
+) -> Result<WorkspaceConfig, String> {
+    workspace::save_config(Path::new(&workspace_path), &config).map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub fn export_workspace(workspace_path: String, destination_path: String) -> Result<(), String> {
+    workspace::export_bundle(Path::new(&workspace_path), Path::new(&destination_path))
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub fn import_workspace(
+    source_path: String,
+    target_path: String,
+) -> Result<WorkspaceSnapshot, String> {
+    workspace::import_bundle(Path::new(&source_path), Path::new(&target_path))
+        .map_err(|error| error.to_string())
 }
 
 #[tauri::command]

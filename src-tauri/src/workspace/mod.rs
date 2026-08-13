@@ -6,6 +6,8 @@ use std::{
 use thiserror::Error;
 use uuid::Uuid;
 
+use serde::{Deserialize, Serialize};
+
 use crate::models::{
     EnvironmentFile, EnvironmentSummary, FORMAT_VERSION, RequestFile, RequestSummary,
     WorkspaceConfig, WorkspaceSnapshot,
@@ -16,6 +18,16 @@ use crate::{
 };
 
 const CONFIG_FILE: &str = "reqvault.yaml";
+const MAX_BUNDLE_SIZE: u64 = 20 * 1024 * 1024;
+
+#[derive(Debug, Serialize, Deserialize)]
+struct WorkspaceBundle {
+    bundle_version: u32,
+    name: String,
+    production_guard: crate::models::ProductionGuard,
+    requests: Vec<RequestSummary>,
+    environments: Vec<EnvironmentSummary>,
+}
 
 #[derive(Debug, Error)]
 pub enum WorkspaceError {
@@ -25,6 +37,8 @@ pub enum WorkspaceError {
     NotDirectory,
     #[error("В этой папке уже есть reqvault.yaml")]
     AlreadyExists,
+    #[error("Для импорта выбери пустую папку")]
+    TargetNotEmpty,
     #[error("В папке нет reqvault.yaml")]
     MissingConfig,
     #[error("Формат workspace не поддерживается: {0}")]
@@ -37,6 +51,8 @@ pub enum WorkspaceError {
     Write { path: String, message: String },
     #[error("Не удалось разобрать YAML в {path}: {message}")]
     InvalidYaml { path: String, message: String },
+    #[error("Не удалось разобрать ReqVault bundle в {path}: {message}")]
+    InvalidBundle { path: String, message: String },
     #[error(
         "{0} нельзя сохранять открытым текстом. Добавь значение в Secret Vault и используй ссылку {{{{secret:NAME}}}}"
     )]
@@ -68,6 +84,7 @@ pub fn create(path: &Path, name: Option<String>) -> Result<WorkspaceSnapshot, Wo
         name: name
             .filter(|value| !value.trim().is_empty())
             .unwrap_or_else(|| fallback_name.to_string()),
+        production_guard: Default::default(),
     };
 
     write_yaml(&path.join(CONFIG_FILE), &config)?;
@@ -87,12 +104,7 @@ pub fn open(path: &Path) -> Result<WorkspaceSnapshot, WorkspaceError> {
         return Err(WorkspaceError::NotDirectory);
     }
 
-    let config_path = path.join(CONFIG_FILE);
-    if !config_path.is_file() {
-        return Err(WorkspaceError::MissingConfig);
-    }
-    let config: WorkspaceConfig = read_yaml(&config_path)?;
-    ensure_format(config.format_version)?;
+    let config = load_config(path)?;
 
     let mut requests = Vec::new();
     collect_yaml_files(path, &path.join("requests"), &mut |file, relative| {
@@ -130,6 +142,103 @@ pub fn open(path: &Path) -> Result<WorkspaceSnapshot, WorkspaceError> {
         requests,
         environments,
     })
+}
+
+pub fn load_config(path: &Path) -> Result<WorkspaceConfig, WorkspaceError> {
+    let config_path = path.join(CONFIG_FILE);
+    if !config_path.is_file() {
+        return Err(WorkspaceError::MissingConfig);
+    }
+    let config: WorkspaceConfig = read_yaml(&config_path)?;
+    ensure_format(config.format_version)?;
+    Ok(config)
+}
+
+pub fn save_config(
+    root: &Path,
+    config: &WorkspaceConfig,
+) -> Result<WorkspaceConfig, WorkspaceError> {
+    ensure_workspace(root)?;
+    ensure_format(config.format_version)?;
+    let current: WorkspaceConfig = read_yaml(&root.join(CONFIG_FILE))?;
+    if current.id != config.id {
+        return Err(WorkspaceError::InvalidRelativePath);
+    }
+    let mut normalized = config.clone();
+    normalized.production_guard.allowed_hosts = normalized
+        .production_guard
+        .allowed_hosts
+        .into_iter()
+        .map(|host| host.trim().to_lowercase())
+        .filter(|host| !host.is_empty())
+        .collect();
+    normalized.production_guard.allowed_hosts.sort();
+    normalized.production_guard.allowed_hosts.dedup();
+    normalized.production_guard.blocked_methods = normalized
+        .production_guard
+        .blocked_methods
+        .into_iter()
+        .map(|method| method.trim().to_uppercase())
+        .filter(|method| !method.is_empty())
+        .collect();
+    normalized.production_guard.blocked_methods.sort();
+    normalized.production_guard.blocked_methods.dedup();
+    write_yaml(&root.join(CONFIG_FILE), &normalized)?;
+    Ok(normalized)
+}
+
+pub fn export_bundle(root: &Path, destination: &Path) -> Result<(), WorkspaceError> {
+    let snapshot = open(root)?;
+    let bundle = WorkspaceBundle {
+        bundle_version: 1,
+        name: snapshot.config.name,
+        production_guard: snapshot.config.production_guard,
+        requests: snapshot.requests,
+        environments: snapshot.environments,
+    };
+    let content = serde_json::to_string_pretty(&bundle).map_err(|error| WorkspaceError::Write {
+        path: destination.display().to_string(),
+        message: error.to_string(),
+    })?;
+    fs::write(destination, content).map_err(|error| write_error(destination, error))
+}
+
+pub fn import_bundle(source: &Path, target: &Path) -> Result<WorkspaceSnapshot, WorkspaceError> {
+    let metadata = fs::metadata(source).map_err(|error| read_error(source, error))?;
+    if metadata.len() > MAX_BUNDLE_SIZE {
+        return Err(WorkspaceError::Read {
+            path: source.display().to_string(),
+            message: "bundle больше 20 МБ".to_string(),
+        });
+    }
+    let content = fs::read_to_string(source).map_err(|error| read_error(source, error))?;
+    let bundle: WorkspaceBundle =
+        serde_json::from_str(&content).map_err(|error| WorkspaceError::InvalidBundle {
+            path: source.display().to_string(),
+            message: error.to_string(),
+        })?;
+    if bundle.bundle_version != 1 {
+        return Err(WorkspaceError::UnsupportedFormat(bundle.bundle_version));
+    }
+    if fs::read_dir(target)
+        .map_err(|error| read_error(target, error))?
+        .next()
+        .is_some()
+    {
+        return Err(WorkspaceError::TargetNotEmpty);
+    }
+
+    let created = create(target, Some(bundle.name))?;
+    let mut config = created.config;
+    config.production_guard = bundle.production_guard;
+    save_config(target, &config)?;
+    for item in bundle.requests {
+        save_request(target, Some(&item.relative_path), None, &item.request)?;
+    }
+    for item in bundle.environments {
+        save_environment(target, Some(&item.relative_path), &item.environment)?;
+    }
+    open(target)
 }
 
 pub fn save_request(
@@ -467,5 +576,31 @@ mod tests {
             Err(WorkspaceError::UnsafeCredential(_))
         ));
         fs::remove_dir_all(path).unwrap();
+    }
+
+    #[test]
+    fn exports_and_imports_portable_bundle_with_new_workspace_id() {
+        let source = temp_workspace();
+        let target = temp_workspace();
+        let bundle = std::env::temp_dir().join(format!("reqvault-{}.json", Uuid::new_v4()));
+        let created = create(&source, Some("Portable API".to_string())).unwrap();
+        let request = RequestFile {
+            name: "Health".to_string(),
+            url: "https://api.example.test/health".to_string(),
+            ..RequestFile::default()
+        };
+        save_request(&source, None, Some("System"), &request).unwrap();
+        export_bundle(&source, &bundle).unwrap();
+        let exported = fs::read_to_string(&bundle).unwrap();
+        assert!(!exported.contains(&created.config.id));
+
+        let imported = import_bundle(&bundle, &target).unwrap();
+        assert_eq!(imported.config.name, "Portable API");
+        assert_ne!(imported.config.id, created.config.id);
+        assert_eq!(imported.requests.len(), 1);
+
+        fs::remove_dir_all(source).unwrap();
+        fs::remove_dir_all(target).unwrap();
+        fs::remove_file(bundle).unwrap();
     }
 }

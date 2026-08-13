@@ -143,6 +143,90 @@ pub async fn authorize(
     })
 }
 
+pub async fn refresh(
+    auth: &AuthConfig,
+    environment: Option<&EnvironmentFile>,
+    backend: &impl SecretBackend,
+) -> Result<OAuthResult, String> {
+    let AuthConfig::OAuth2 {
+        token_url,
+        client_id,
+        client_secret,
+        scopes,
+        access_token,
+        refresh_token,
+        ..
+    } = auth
+    else {
+        return Err("В запросе не настроен OAuth 2.0".to_string());
+    };
+
+    let access_secret_name = exact_secret_name(access_token, "access token")?;
+    let refresh_secret_name = exact_secret_name(refresh_token, "refresh token")?;
+    if !client_secret.trim().is_empty() {
+        exact_secret_name(client_secret, "client secret")?;
+    }
+
+    let variables = environment
+        .map(|item| item.variables.clone())
+        .unwrap_or_default();
+    let mut used_secrets = Vec::new();
+    let mut resolve = |value: &str| -> Result<String, String> {
+        let with_variables =
+            resolve_variables(value, &variables).map_err(|error| error.to_string())?;
+        resolve_secrets(
+            &with_variables,
+            &mut |name| {
+                secrets::get(backend, name).map_err(|error| match error {
+                    secrets::SecretError::NotFound(name) => ResolveError::MissingSecret(name),
+                    _ => ResolveError::SecretStorage,
+                })
+            },
+            &mut used_secrets,
+        )
+        .map_err(|error| error.to_string())
+    };
+
+    let token_url = resolve(token_url)?;
+    validate_endpoint(&token_url, "Token URL")?;
+    let client_id = resolve(client_id)?;
+    if client_id.trim().is_empty() {
+        return Err("Укажи Client ID".to_string());
+    }
+    let client_secret = resolve(client_secret)?;
+    let scopes = resolve(scopes)?;
+    let refresh_value = resolve(refresh_token)?;
+    let mut form = BTreeMap::from([
+        ("grant_type", "refresh_token".to_string()),
+        ("refresh_token", refresh_value),
+        ("client_id", client_id),
+    ]);
+    if !client_secret.is_empty() {
+        form.insert("client_secret", client_secret);
+    }
+    if !scopes.is_empty() {
+        form.insert("scope", scopes);
+    }
+
+    let client = Client::builder()
+        .timeout(Duration::from_secs(60))
+        .build()
+        .map_err(|_| "Не удалось подготовить OAuth-клиент".to_string())?;
+    let token = exchange_token(&client, &token_url, &form, &used_secrets).await?;
+    secrets::save(backend, &access_secret_name, &token.access_token)
+        .map_err(|error| error.to_string())?;
+    if let Some(value) = token.refresh_token {
+        secrets::save(backend, &refresh_secret_name, &value).map_err(|error| error.to_string())?;
+    }
+
+    Ok(OAuthResult {
+        access_token_secret: access_secret_name,
+        refresh_token_secret: Some(refresh_secret_name),
+        expires_in: token.expires_in,
+        scope: token.scope,
+    })
+}
+
 async fn authorization_code_pkce(
     client: &Client,
     authorization_url: &str,
@@ -389,6 +473,50 @@ mod tests {
             !serde_json::to_string(&result)
                 .unwrap()
                 .contains(TEST_SECRET)
+        );
+    }
+
+    #[tokio::test]
+    async fn refresh_rotates_access_and_refresh_tokens() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            let (mut socket, _) = listener.accept().await.unwrap();
+            let mut buffer = vec![0_u8; 4096];
+            let read = socket.read(&mut buffer).await.unwrap();
+            let raw = String::from_utf8_lossy(&buffer[..read]);
+            assert!(raw.contains("grant_type=refresh_token"));
+            assert!(raw.contains("refresh_token=old-refresh"));
+            let body =
+                r#"{"access_token":"new-access","refresh_token":"new-refresh","expires_in":1800}"#;
+            let response = format!(
+                "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{body}",
+                body.len()
+            );
+            socket.write_all(response.as_bytes()).await.unwrap();
+        });
+        let auth = AuthConfig::OAuth2 {
+            grant_type: "authorization_code_pkce".to_string(),
+            authorization_url: String::new(),
+            token_url: format!("http://127.0.0.1:{}/token", address.port()),
+            client_id: "reqvault-test".to_string(),
+            client_secret: String::new(),
+            scopes: String::new(),
+            access_token: "{{secret:ACCESS}}".to_string(),
+            refresh_token: "{{secret:REFRESH}}".to_string(),
+        };
+        let backend = MemoryBackend::default();
+        backend.set("REFRESH", "old-refresh").unwrap();
+        let result = refresh(&auth, None, &backend).await.unwrap();
+        server.await.unwrap();
+        assert_eq!(result.expires_in, Some(1800));
+        assert_eq!(
+            backend.get("ACCESS").unwrap().as_deref(),
+            Some("new-access")
+        );
+        assert_eq!(
+            backend.get("REFRESH").unwrap().as_deref(),
+            Some("new-refresh")
         );
     }
 }

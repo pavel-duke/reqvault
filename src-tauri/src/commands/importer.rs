@@ -9,3 +9,8 @@ pub fn import_collection(
 ) -> Result<ImportResult, String> {
     importer::import_file(Path::new(&workspace_path), Path::new(&file_path))
 }
+
+#[tauri::command]
+pub fn import_curl(workspace_path: String, command: String) -> Result<ImportResult, String> {
+    importer::import_curl(Path::new(&workspace_path), &command)
+}

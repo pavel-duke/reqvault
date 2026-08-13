@@ -12,7 +12,9 @@ pub use request::{
 };
 pub use response::{HttpError, HttpResponse, ResponseHeader};
 pub use security::SecurityReport;
-pub use workspace::{EnvironmentSummary, RequestSummary, WorkspaceConfig, WorkspaceSnapshot};
+pub use workspace::{
+    EnvironmentSummary, ProductionGuard, RequestSummary, WorkspaceConfig, WorkspaceSnapshot,
+};
 
 pub const FORMAT_VERSION: u32 = 1;
 pub use history::{HistoryEntry, HistorySettings, HistorySummary};
