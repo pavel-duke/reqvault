@@ -1,0 +1,5 @@
+format_version: 1
+name: local
+variables:
+  BASE_URL: https://api.example.test
+  USER_ID: "42"

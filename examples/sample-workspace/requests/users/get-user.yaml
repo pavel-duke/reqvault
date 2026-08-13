@@ -1,0 +1,17 @@
+format_version: 1
+name: Получить пользователя
+method: GET
+url: "{{BASE_URL}}/users/{{USER_ID}}"
+headers:
+  Accept: application/json
+query:
+  - name: include
+    value: profile
+    enabled: true
+auth:
+  type: bearer
+  token: "{{secret:API_TOKEN}}"
+body:
+  type: none
+timeout_ms: 30000
+follow_redirects: true

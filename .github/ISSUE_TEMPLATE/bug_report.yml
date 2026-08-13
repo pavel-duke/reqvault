@@ -1,0 +1,48 @@
+name: Сообщить об ошибке
+description: Помогите воспроизвести проблему в ReqVault
+title: "[Ошибка]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: Не добавляйте реальные токены, пароли, cookie и приватные данные.
+  - type: input
+    id: version
+    attributes:
+      label: Версия ReqVault
+      placeholder: 0.1.0
+    validations:
+      required: true
+  - type: input
+    id: os
+    attributes:
+      label: Операционная система
+      placeholder: Windows 11, macOS 15, Ubuntu 24.04
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Как воспроизвести
+      description: Перечислите точные действия и используйте только тестовые данные.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Ожидаемое поведение
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Фактическое поведение
+    validations:
+      required: true
+  - type: checkboxes
+    id: secrets
+    attributes:
+      label: Безопасность данных
+      options:
+        - label: Я проверил, что в отчёте нет секретов и приватных данных.
+          required: true

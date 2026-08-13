@@ -1,0 +1,22 @@
+name: Предложить улучшение
+description: Опишите задачу пользователя и желаемый результат
+title: "[Идея]: "
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Какая проблема сейчас
+      description: Расскажите о задаче, а не только о желаемой кнопке.
+    validations:
+      required: true
+  - type: textarea
+    id: solution
+    attributes:
+      label: Какой результат нужен
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Какие обходные способы уже пробовали

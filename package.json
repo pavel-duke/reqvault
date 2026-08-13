@@ -2,6 +2,15 @@
   "name": "reqvault",
   "private": true,
   "version": "0.1.0",
+  "description": "Локальный desktop-клиент для REST API с YAML-workspace и системным хранилищем секретов",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/pavel-duke/reqvault.git"
+  },
+  "engines": {
+    "node": ">=22.19"
+  },
   "type": "module",
   "scripts": {
     "dev": "vite",
