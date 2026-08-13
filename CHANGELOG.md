@@ -2,6 +2,23 @@
 
 Формат основан на [Keep a Changelog](https://keepachangelog.com/ru/1.1.0/), версия проекта следует [Semantic Versioning](https://semver.org/lang/ru/).
 
+## [0.3.0] — 2026-08-13
+
+### Добавлено
+
+- автоматическое обновление OAuth access token по refresh token и повтор запроса после `401`;
+- ручное обновление OAuth token из редактора запроса;
+- импорт команд cURL с переносом HTTP, multipart, proxy и TLS-настроек;
+- локальное разрешение внутренних и внешних OpenAPI `$ref`;
+- переносимый `.reqvault.json` bundle для экспорта и импорта workspace;
+- Production Guard с обязательным HTTPS, allowlist хостов и блокировкой методов.
+
+### Безопасность
+
+- credential из cURL удаляются до записи запроса и заменяются ссылками на Secret Vault;
+- внешние OpenAPI `$ref` читаются только внутри каталога импортируемой спецификации;
+- новый UUID назначается при импорте workspace, поэтому системные секреты не связываются автоматически.
+
 ## [0.2.0] — 2026-08-13
 
 ### Добавлено
@@ -39,3 +56,4 @@
 
 [0.1.0]: https://github.com/pavel-duke/reqvault/releases/tag/v0.1.0
 [0.2.0]: https://github.com/pavel-duke/reqvault/releases/tag/v0.2.0
+[0.3.0]: https://github.com/pavel-duke/reqvault/releases/tag/v0.3.0
