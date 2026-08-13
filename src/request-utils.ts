@@ -18,6 +18,7 @@ export function emptyRequest(): RequestFile {
       client_certificate_path: "",
       client_key_path: "",
     },
+    tests: [],
   };
 }
 

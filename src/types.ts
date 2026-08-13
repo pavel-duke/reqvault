@@ -45,6 +45,13 @@ export type BodyConfig =
   | { type: "form_urlencoded"; fields: KeyValue[] }
   | { type: "multipart"; fields: MultipartField[] };
 
+export type ResponseAssertion =
+  | { type: "status"; expected: number; enabled: boolean }
+  | { type: "header"; name: string; operator: "exists" | "equals" | "contains"; expected: string; enabled: boolean }
+  | { type: "json_path"; path: string; operator: "exists" | "equals" | "contains"; expected: string; enabled: boolean }
+  | { type: "body_contains"; expected: string; enabled: boolean }
+  | { type: "response_time"; max_ms: number; enabled: boolean };
+
 export type RequestFile = {
   format_version: 1;
   name: string;
@@ -57,6 +64,7 @@ export type RequestFile = {
   timeout_ms: number;
   follow_redirects: boolean;
   transport: TransportConfig;
+  tests: ResponseAssertion[];
 };
 
 export type EnvironmentFile = {
@@ -165,6 +173,39 @@ export type SecurityReport = {
   in_headers: number;
   in_query: number;
   warnings: string[];
+};
+
+export type AssertionResult = {
+  passed: boolean;
+  label: string;
+  expected: string;
+  actual: string;
+};
+
+export type RequestRunResult = {
+  relative_path: string;
+  request_name: string;
+  method: string;
+  status: number | null;
+  duration_ms: number | null;
+  passed: boolean;
+  assertions: AssertionResult[];
+  error: string | null;
+};
+
+export type CollectionRunReport = {
+  started_at_ms: number;
+  duration_ms: number;
+  total: number;
+  passed: number;
+  failed: number;
+  results: RequestRunResult[];
+};
+
+export type CollectionRunOptions = {
+  environment: string | null;
+  collection: string | null;
+  stop_on_failure: boolean;
 };
 
 export type Theme = "light" | "dark";

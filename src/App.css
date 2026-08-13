@@ -1307,6 +1307,166 @@ code {
   resize: vertical;
 }
 
+.assertions-editor {
+  display: grid;
+  gap: 10px;
+}
+
+.assertions-heading,
+.runner-result-line,
+.runner-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.assertions-heading .help-text {
+  margin: 3px 0 0;
+}
+
+.assertion-row {
+  display: grid;
+  grid-template-columns: auto 150px repeat(3, minmax(130px, 1fr)) auto;
+  align-items: end;
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+}
+
+.assertion-row > input[type="checkbox"] {
+  align-self: center;
+  width: 15px;
+  min-height: 15px;
+  accent-color: var(--accent);
+}
+
+.assertion-row label {
+  display: grid;
+  gap: 5px;
+}
+
+.assertion-row label span {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.assertion-row .assertion-wide {
+  grid-column: span 3;
+}
+
+.empty-inline {
+  padding: 24px;
+  border: 1px dashed var(--border);
+  border-radius: 8px;
+  color: var(--muted);
+  text-align: center;
+}
+
+.runner-dialog {
+  width: min(960px, 100%);
+  overflow: auto;
+}
+
+.runner-controls {
+  display: grid;
+  grid-template-columns: minmax(160px, 1fr) minmax(160px, 1fr) auto auto;
+  align-items: end;
+  gap: 12px;
+  padding: 18px;
+  border-bottom: 1px solid var(--border);
+}
+
+.runner-error,
+.runner-results {
+  margin: 16px 18px 0;
+}
+
+.runner-results {
+  min-height: 180px;
+}
+
+.runner-summary {
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.runner-summary.all-passed {
+  border-color: rgba(39, 174, 96, 0.45);
+  background: rgba(39, 174, 96, 0.08);
+}
+
+.runner-summary.has-failures {
+  border-color: rgba(208, 67, 67, 0.45);
+  background: rgba(208, 67, 67, 0.08);
+}
+
+.runner-list {
+  display: grid;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.runner-result {
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-left-width: 3px;
+  border-radius: 7px;
+}
+
+.runner-result.passed {
+  border-left-color: #27ae60;
+}
+
+.runner-result.failed {
+  border-left-color: #d04343;
+}
+
+.runner-result-line {
+  justify-content: flex-start;
+}
+
+.runner-result-line strong {
+  flex: 1;
+}
+
+.runner-mark {
+  width: 34px;
+  font: 700 10px/1 "SFMono-Regular", Consolas, monospace;
+}
+
+.runner-result.failed .runner-mark {
+  color: #d04343;
+}
+
+.runner-result.passed .runner-mark {
+  color: #238b50;
+}
+
+.runner-result p {
+  margin: 7px 0 0 46px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.runner-dialog > .modal-actions {
+  margin: 18px;
+}
+
+@media (max-width: 900px) {
+  .assertion-row,
+  .runner-controls {
+    grid-template-columns: 1fr;
+  }
+
+  .assertion-row .assertion-wide {
+    grid-column: auto;
+  }
+}
+
 .response-viewer {
   min-height: 300px;
   padding: 18px 24px 26px;

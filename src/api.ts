@@ -14,6 +14,8 @@ import type {
   SecurityReport,
   WorkspaceSnapshot,
   WorkspaceConfig,
+  CollectionRunOptions,
+  CollectionRunReport,
 } from "./types";
 
 export function createWorkspace(path: string): Promise<WorkspaceSnapshot> {
@@ -71,6 +73,13 @@ export function saveWorkspaceConfig(
   config: WorkspaceConfig,
 ): Promise<WorkspaceConfig> {
   return invoke("save_workspace_config", { workspacePath, config });
+}
+
+export function runCollection(
+  workspacePath: string,
+  options: CollectionRunOptions,
+): Promise<CollectionRunReport> {
+  return invoke("run_collection", { workspacePath, options });
 }
 
 export function getHistorySettings(workspaceId: string): Promise<HistorySettings> {

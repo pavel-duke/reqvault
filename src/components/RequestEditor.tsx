@@ -4,8 +4,9 @@ import { recordToRows, rowsToRecord } from "../request-utils";
 import type { AuthConfig, BodyConfig, KeyValue, MultipartField, ProxyConfig, RequestFile, SecurityReport } from "../types";
 import { KeyValueEditor } from "./KeyValueEditor";
 import { SecurityLens } from "./SecurityLens";
+import { AssertionsEditor } from "./AssertionsEditor";
 
-type EditorTab = "query" | "headers" | "auth" | "body" | "transport";
+type EditorTab = "query" | "headers" | "auth" | "body" | "tests" | "transport";
 
 type Props = {
   request: RequestFile;
@@ -173,6 +174,7 @@ export function RequestEditor({
         <button className={tab === "headers" ? "active" : ""} type="button" onClick={() => setTab("headers")}>Заголовки <span>{Object.keys(request.headers).length || ""}</span></button>
         <button className={tab === "auth" ? "active" : ""} type="button" onClick={() => setTab("auth")}>Авторизация</button>
         <button className={tab === "body" ? "active" : ""} type="button" onClick={() => setTab("body")}>Тело</button>
+        <button className={tab === "tests" ? "active" : ""} type="button" onClick={() => setTab("tests")}>Проверки <span>{request.tests.length || ""}</span></button>
         <button className={tab === "transport" ? "active" : ""} type="button" onClick={() => setTab("transport")}>Сеть</button>
       </div>
 
@@ -267,6 +269,7 @@ export function RequestEditor({
             )}
           </div>
         )}
+        {tab === "tests" && <AssertionsEditor assertions={request.tests} onChange={(tests) => patch({ tests })} />}
         {tab === "transport" && (
           <div className="transport-editor">
             <label className="field"><span>Proxy</span><select value={request.transport.proxy.type} onChange={(event) => updateProxy(event.currentTarget.value === "system" ? { type: "system" } : event.currentTarget.value === "custom" ? { type: "custom", url: "", username: "", password: "{{secret:PROXY_PASSWORD}}" } : { type: "none" })}><option value="none">Не использовать</option><option value="system">Системный proxy</option><option value="custom">Указать вручную</option></select></label>

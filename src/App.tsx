@@ -22,6 +22,7 @@ import {
   removeRequest,
   removeSecret,
   refreshOAuth,
+  runCollection,
   saveEnvironment,
   sendHttpRequest,
   saveRequest,
@@ -31,6 +32,7 @@ import {
 } from "./api";
 import { EnvironmentDialog } from "./components/EnvironmentDialog";
 import { CurlImportDialog } from "./components/CurlImportDialog";
+import { CollectionRunnerDialog } from "./components/CollectionRunnerDialog";
 import { HistoryDialog } from "./components/HistoryDialog";
 import { RequestEditor } from "./components/RequestEditor";
 import { ResponseViewer } from "./components/ResponseViewer";
@@ -39,7 +41,7 @@ import { Sidebar } from "./components/Sidebar";
 import { StartScreen } from "./components/StartScreen";
 import { WorkspaceSettingsDialog } from "./components/WorkspaceSettingsDialog";
 import { collectionFromPath, emptyRequest } from "./request-utils";
-import type { EnvironmentFile, HistorySettings, HistorySummary, HttpError, HttpResponse, RequestFile, RequestSummary, SecurityReport, Theme, WorkspaceConfig, WorkspaceSnapshot } from "./types";
+import type { CollectionRunOptions, CollectionRunReport, EnvironmentFile, HistorySettings, HistorySummary, HttpError, HttpResponse, RequestFile, RequestSummary, SecurityReport, Theme, WorkspaceConfig, WorkspaceSnapshot } from "./types";
 import "./App.css";
 
 const LAST_WORKSPACE_KEY = "reqvault.last-workspace";
@@ -77,6 +79,10 @@ function App() {
   const [curlError, setCurlError] = useState<string | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settingsError, setSettingsError] = useState<string | null>(null);
+  const [runnerOpen, setRunnerOpen] = useState(false);
+  const [runnerBusy, setRunnerBusy] = useState(false);
+  const [runnerError, setRunnerError] = useState<string | null>(null);
+  const [runnerReport, setRunnerReport] = useState<CollectionRunReport | null>(null);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [historySettings, setHistorySettings] = useState<HistorySettings>({ enabled: false, max_entries: 50 });
   const [historyEntries, setHistoryEntries] = useState<HistorySummary[]>([]);
@@ -350,6 +356,20 @@ function App() {
     }
   }
 
+  async function runWorkspaceCollection(options: CollectionRunOptions) {
+    if (!workspace) return;
+    setRunnerBusy(true);
+    setRunnerError(null);
+    setRunnerReport(null);
+    try {
+      setRunnerReport(await runCollection(workspace.root_path, options));
+    } catch (caught) {
+      setRunnerError(errorMessage(caught));
+    } finally {
+      setRunnerBusy(false);
+    }
+  }
+
   async function openHistory() {
     if (!workspace) return;
     setHistoryOpen(true);
@@ -488,6 +508,7 @@ function App() {
             onExport={() => void exportCurrentWorkspace()}
             onSettings={() => { setSettingsError(null); setSettingsOpen(true); }}
             onHistory={() => void openHistory()}
+            onRun={() => { setRunnerError(null); setRunnerReport(null); setRunnerOpen(true); }}
             onClose={closeWorkspace}
           />
           <div className="main-panel">
@@ -522,6 +543,10 @@ function App() {
 
       {workspace && settingsOpen && (
         <WorkspaceSettingsDialog config={workspace.config} busy={busy} error={settingsError} onSave={(config) => void persistWorkspaceConfig(config)} onClose={() => setSettingsOpen(false)} />
+      )}
+
+      {workspace && runnerOpen && (
+        <CollectionRunnerDialog workspace={workspace} activeEnvironment={activeEnvironment} busy={runnerBusy} error={runnerError} report={runnerReport} onRun={(options) => void runWorkspaceCollection(options)} onClose={() => setRunnerOpen(false)} />
       )}
     </main>
   );
