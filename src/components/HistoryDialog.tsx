@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import type { HistoryEntry, HistorySettings, HistorySummary } from "../types";
 
 type Props = {
@@ -20,6 +20,15 @@ function formatDate(value: number) {
 export function HistoryDialog({ settings, entries, busy, error, onSettingsChange, onLoad, onDelete, onClear, onClose }: Props) {
   const [selected, setSelected] = useState<HistoryEntry | null>(null);
   const [localError, setLocalError] = useState<string | null>(null);
+  const [query, setQuery] = useState("");
+  const visibleEntries = useMemo(() => {
+    const normalized = query.trim().toLocaleLowerCase("ru");
+    if (!normalized) return entries;
+    return entries.filter((entry) =>
+      [entry.request_name, entry.method, entry.url, String(entry.status)]
+        .some((value) => value.toLocaleLowerCase("ru").includes(normalized)),
+    );
+  }, [entries, query]);
 
   async function load(id: string) {
     setLocalError(null);
@@ -39,11 +48,13 @@ export function HistoryDialog({ settings, entries, busy, error, onSettingsChange
           <label className="compact-field"><span>Лимит</span><input type="number" min="1" max="500" value={settings.max_entries} disabled={busy} onChange={(event) => void onSettingsChange({ ...settings, max_entries: Number(event.currentTarget.value) || 1 })} /></label>
         </div>
         <p className="history-warning">История выключена по умолчанию. При включении очищенные ответы сохраняются вне workspace и не попадают в Git, но могут содержать рабочие данные API.</p>
+        <label className="field history-search"><span>Поиск в истории</span><input value={query} onChange={(event) => setQuery(event.currentTarget.value)} placeholder="Запрос, URL, метод или status" /></label>
         {(error || localError) && <div className="error-banner" role="alert">{error || localError}</div>}
         <div className="history-content">
           <div className="history-list">
             {entries.length === 0 && <p className="help-text">Сохранённых ответов пока нет.</p>}
-            {entries.map((entry) => <button type="button" key={entry.id} className={`history-item ${selected?.summary.id === entry.id ? "selected" : ""}`} onClick={() => void load(entry.id)}><strong><span className={`method method-${entry.method.toLowerCase()}`}>{entry.method}</span> {entry.request_name}</strong><small>{entry.status} · {entry.duration_ms} мс · {formatDate(entry.created_at_ms)}</small><span>{entry.url}</span></button>)}
+            {visibleEntries.map((entry) => <button type="button" key={entry.id} className={`history-item ${selected?.summary.id === entry.id ? "selected" : ""}`} onClick={() => void load(entry.id)}><strong><span className={`method method-${entry.method.toLowerCase()}`}>{entry.method}</span> {entry.request_name}</strong><small>{entry.status} · {entry.duration_ms} мс · {formatDate(entry.created_at_ms)}</small><span>{entry.url}</span></button>)}
+            {entries.length > 0 && visibleEntries.length === 0 && <p className="help-text">По этому запросу ничего не найдено.</p>}
           </div>
           <div className="history-preview">
             {selected ? <><div className="response-metrics"><strong>{selected.summary.status} {selected.status_text}</strong><span>{selected.summary.size_bytes} Б</span></div><pre className="response-body">{selected.body || "Ответ не содержит тела"}</pre><button className="danger-button" type="button" onClick={() => void onDelete(selected.summary.id).then(() => setSelected(null))}>Удалить запись</button></> : <p className="help-text">Выберите запись слева.</p>}

@@ -326,6 +326,9 @@ mod tests {
             }],
             body: r#"{"user":{"id":42,"name":"Pavel"}}"#.to_string(),
             is_json: true,
+            content_type: "application/json".to_string(),
+            body_kind: "json".to_string(),
+            truncated: false,
         }
     }
 

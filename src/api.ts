@@ -129,6 +129,23 @@ export function clearHistory(workspaceId: string): Promise<void> {
   return invoke("clear_history", { workspaceId });
 }
 
+export function exportResponse(
+  destinationPath: string,
+  format: "body" | "http" | "har",
+  request: RequestFile,
+  response: HttpResponse,
+): Promise<void> {
+  return invoke("export_response", { destinationPath, format, request, response });
+}
+
+export function saveResponseFixture(
+  workspacePath: string,
+  name: string,
+  response: HttpResponse,
+): Promise<string> {
+  return invoke("save_response_fixture", { workspacePath, name, response });
+}
+
 export function listCookies(workspaceId: string): Promise<CookieSummary[]> {
   return invoke("list_cookies", { workspaceId });
 }

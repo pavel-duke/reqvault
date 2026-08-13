@@ -1,3 +1,4 @@
+import { useMemo, useState } from "react";
 import type { EnvironmentSummary, RequestSummary, WorkspaceSnapshot } from "../types";
 
 type Props = {
@@ -53,7 +54,22 @@ export function Sidebar({
   onStream,
   onClose,
 }: Props) {
-  const groups = groupedRequests(workspace.requests);
+  const [search, setSearch] = useState("");
+  const normalizedSearch = search.trim().toLocaleLowerCase("ru");
+  const filteredRequests = useMemo(() => {
+    if (!normalizedSearch) return workspace.requests;
+    return workspace.requests.filter((summary) =>
+      [summary.request.name, summary.request.url, summary.request.method, summary.relative_path]
+        .some((value) => value.toLocaleLowerCase("ru").includes(normalizedSearch)),
+    );
+  }, [normalizedSearch, workspace.requests]);
+  const matchingEnvironments = normalizedSearch
+    ? workspace.environments.filter((environment) =>
+        [environment.environment.name, environment.relative_path]
+          .some((value) => value.toLocaleLowerCase("ru").includes(normalizedSearch)),
+      )
+    : [];
+  const groups = groupedRequests(filteredRequests);
 
   return (
     <aside className="sidebar">
@@ -106,11 +122,18 @@ export function Sidebar({
         <button className="quiet-icon" type="button" onClick={onNewRequest} title="Новый запрос" aria-label="Новый запрос">+</button>
       </div>
 
+      <label className="sidebar-search">
+        <span className="sr-only">Поиск запросов и окружений</span>
+        <input value={search} onChange={(event) => setSearch(event.currentTarget.value)} placeholder="Поиск по запросам и URL" />
+        {search && <button type="button" onClick={() => setSearch("")} aria-label="Очистить поиск">×</button>}
+      </label>
+      {matchingEnvironments.length > 0 && <div className="environment-results"><small>Окружения</small>{matchingEnvironments.map((environment) => <button type="button" key={environment.relative_path} onClick={() => onEnvironmentChange(environment.relative_path)}>{environmentLabel(environment)}</button>)}</div>}
+
       <nav className="request-tree" aria-label="Запросы workspace">
         {groups.length === 0 && (
           <div className="sidebar-empty">
-            <p>Здесь пока пусто</p>
-            <button className="text-button" type="button" onClick={onNewRequest}>Создать запрос</button>
+            <p>{search ? "Запросы не найдены" : "Здесь пока пусто"}</p>
+            {!search && <button className="text-button" type="button" onClick={onNewRequest}>Создать запрос</button>}
           </div>
         )}
         {groups.map(([group, requests]) => (

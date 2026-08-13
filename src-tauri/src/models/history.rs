@@ -42,4 +42,18 @@ pub struct HistoryEntry {
     pub headers: Vec<ResponseHeader>,
     pub body: String,
     pub is_json: bool,
+    #[serde(default = "default_content_type")]
+    pub content_type: String,
+    #[serde(default = "default_body_kind")]
+    pub body_kind: String,
+    #[serde(default)]
+    pub truncated: bool,
+}
+
+fn default_content_type() -> String {
+    "text/plain".to_string()
+}
+
+fn default_body_kind() -> String {
+    "text".to_string()
 }

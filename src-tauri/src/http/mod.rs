@@ -1,5 +1,7 @@
 use std::{collections::BTreeMap, fs, time::Duration};
 
+use base64::{Engine as _, engine::general_purpose::STANDARD};
+use futures_util::StreamExt;
 use hmac::{Hmac, Mac};
 use md5::Md5;
 use reqwest::{
@@ -23,6 +25,7 @@ use crate::{
 };
 
 const ALLOWED_METHODS: &[&str] = &["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"];
+const MAX_RESPONSE_BODY_BYTES: usize = 8 * 1024 * 1024;
 
 #[derive(Debug, Clone)]
 struct PreparedRequest {
@@ -618,6 +621,15 @@ async fn execute(
     }
     let duration_ms = started.elapsed().as_millis();
     let status = response.status();
+    let content_type = response
+        .headers()
+        .get(CONTENT_TYPE)
+        .and_then(|value| value.to_str().ok())
+        .unwrap_or("application/octet-stream")
+        .to_string();
+    let declared_size = response
+        .content_length()
+        .and_then(|value| usize::try_from(value).ok());
     let headers = response
         .headers()
         .iter()
@@ -630,18 +642,32 @@ async fn execute(
             ),
         })
         .collect();
-    let bytes = response.bytes().await.map_err(|error| {
-        request_error(
-            "Не удалось прочитать ответ сервера",
-            error,
-            &prepared.secret_values,
-            "response",
-        )
-    })?;
-    let size_bytes = bytes.len();
-    let raw_body = String::from_utf8_lossy(&bytes).into_owned();
-    let body = redact_text(&raw_body, &prepared.secret_values);
-    let is_json = serde_json::from_str::<serde_json::Value>(&body).is_ok();
+    let mut stream = response.bytes_stream();
+    let mut bytes = Vec::with_capacity(
+        declared_size
+            .unwrap_or_default()
+            .min(MAX_RESPONSE_BODY_BYTES),
+    );
+    let mut truncated = declared_size.is_some_and(|size| size > MAX_RESPONSE_BODY_BYTES);
+    while let Some(chunk) = stream.next().await {
+        let chunk = chunk.map_err(|error| {
+            request_error(
+                "Не удалось прочитать ответ сервера",
+                error,
+                &prepared.secret_values,
+                "response",
+            )
+        })?;
+        let available = MAX_RESPONSE_BODY_BYTES.saturating_sub(bytes.len());
+        if chunk.len() > available {
+            bytes.extend_from_slice(&chunk[..available]);
+            truncated = true;
+            break;
+        }
+        bytes.extend_from_slice(&chunk);
+    }
+    let size_bytes = declared_size.unwrap_or(bytes.len());
+    let (body, body_kind, is_json) = response_body(&content_type, &bytes, &prepared.secret_values);
 
     Ok(HttpResponse {
         request_id,
@@ -652,7 +678,45 @@ async fn execute(
         headers,
         body,
         is_json,
+        content_type,
+        body_kind,
+        truncated,
     })
+}
+
+fn response_body(content_type: &str, bytes: &[u8], secrets: &[String]) -> (String, String, bool) {
+    let media_type = content_type
+        .split(';')
+        .next()
+        .unwrap_or_default()
+        .trim()
+        .to_ascii_lowercase();
+    let textual = media_type.starts_with("text/")
+        || media_type.contains("json")
+        || media_type.contains("xml")
+        || media_type.contains("javascript")
+        || media_type == "application/x-www-form-urlencoded"
+        || (media_type == "application/octet-stream" && std::str::from_utf8(bytes).is_ok());
+    if textual {
+        let raw = String::from_utf8_lossy(bytes).into_owned();
+        let body = redact_text(&raw, secrets);
+        let is_json = serde_json::from_str::<serde_json::Value>(&body).is_ok();
+        let kind = if is_json {
+            "json"
+        } else if media_type.contains("html") {
+            "html"
+        } else {
+            "text"
+        };
+        (body, kind.to_string(), is_json)
+    } else {
+        let kind = if media_type.starts_with("image/") {
+            "image"
+        } else {
+            "binary"
+        };
+        (STANDARD.encode(bytes), kind.to_string(), false)
+    }
 }
 
 fn digest_authorization(
@@ -1453,6 +1517,24 @@ mod tests {
                 .as_deref(),
             Some("session=private")
         );
+    }
+
+    #[test]
+    fn classifies_text_image_and_binary_response_bodies() {
+        let (body, kind, is_json) =
+            response_body("application/json; charset=utf-8", br#"{"ok":true}"#, &[]);
+        assert_eq!(body, r#"{"ok":true}"#);
+        assert_eq!(kind, "json");
+        assert!(is_json);
+
+        let bytes = [0_u8, 159, 146, 150];
+        let (body, kind, is_json) = response_body("image/png", &bytes, &[]);
+        assert_eq!(body, "AJ+Slg==");
+        assert_eq!(kind, "image");
+        assert!(!is_json);
+
+        let (_, kind, _) = response_body("application/pdf", &bytes, &[]);
+        assert_eq!(kind, "binary");
     }
 
     #[test]

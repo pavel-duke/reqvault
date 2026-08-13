@@ -129,6 +129,9 @@ export type HttpResponse = {
   headers: ResponseHeader[];
   body: string;
   is_json: boolean;
+  content_type: string;
+  body_kind: "json" | "text" | "html" | "image" | "binary";
+  truncated: boolean;
 };
 
 export type HttpError = {
@@ -174,6 +177,9 @@ export type HistoryEntry = {
   headers: ResponseHeader[];
   body: string;
   is_json: boolean;
+  content_type: string;
+  body_kind: "json" | "text" | "html" | "image" | "binary";
+  truncated: boolean;
 };
 
 export type CookieSummary = {

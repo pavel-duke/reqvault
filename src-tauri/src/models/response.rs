@@ -6,7 +6,7 @@ pub struct ResponseHeader {
     pub value: String,
 }
 
-#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct HttpResponse {
     pub request_id: String,
     pub status: u16,
@@ -16,6 +16,20 @@ pub struct HttpResponse {
     pub headers: Vec<ResponseHeader>,
     pub body: String,
     pub is_json: bool,
+    #[serde(default = "default_content_type")]
+    pub content_type: String,
+    #[serde(default = "default_body_kind")]
+    pub body_kind: String,
+    #[serde(default)]
+    pub truncated: bool,
+}
+
+fn default_content_type() -> String {
+    "text/plain".to_string()
+}
+
+fn default_body_kind() -> String {
+    "text".to_string()
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]

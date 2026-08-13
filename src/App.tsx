@@ -12,6 +12,7 @@ import {
   getHistorySettings,
   errorMessage,
   exportWorkspace,
+  exportResponse,
   generateSafeCurl,
   importCollection,
   importCurl,
@@ -28,6 +29,7 @@ import {
   refreshOAuth,
   runCollection,
   saveEnvironment,
+  saveResponseFixture,
   sendHttpRequest,
   saveRequest,
   saveSecret,
@@ -40,6 +42,7 @@ import { CollectionRunnerDialog } from "./components/CollectionRunnerDialog";
 import { CookieDialog } from "./components/CookieDialog";
 import { HistoryDialog } from "./components/HistoryDialog";
 import { RequestEditor } from "./components/RequestEditor";
+import { ResponseCompareDialog } from "./components/ResponseCompareDialog";
 import { ResponseViewer } from "./components/ResponseViewer";
 import { SecretDialog } from "./components/SecretDialog";
 import { Sidebar } from "./components/Sidebar";
@@ -99,6 +102,10 @@ function App() {
   const [cookies, setCookies] = useState<CookieSummary[]>([]);
   const [cookiesBusy, setCookiesBusy] = useState(false);
   const [cookiesError, setCookiesError] = useState<string | null>(null);
+  const [responseActionStatus, setResponseActionStatus] = useState<string | null>(null);
+  const [compareOpen, setCompareOpen] = useState(false);
+  const [compareBusy, setCompareBusy] = useState(false);
+  const [compareError, setCompareError] = useState<string | null>(null);
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
@@ -176,6 +183,7 @@ function App() {
     const environment = workspace.environments.find((item) => item.relative_path === activeEnvironment)?.environment ?? null;
     setSending(true);
     setHttpError(null);
+    setResponseActionStatus(null);
     try {
       setResponse(await sendHttpRequest(draft, environment, workspace.config.id, workspace.root_path));
     } catch (caught) {
@@ -528,6 +536,55 @@ function App() {
     }
   }
 
+  async function exportCurrentResponse(format: "body" | "http" | "har") {
+    if (!draft || !response) return;
+    const extension = format === "har" ? "har" : format === "http" ? "http" : response.is_json ? "json" : "bin";
+    const destination = await save({
+      title: format === "har" ? "Экспортировать безопасный HAR" : "Сохранить ответ",
+      defaultPath: `${draft.name || "response"}.${extension}`,
+      filters: [{ name: format === "har" ? "HTTP Archive" : "Ответ API", extensions: [extension] }],
+    });
+    if (!destination) return;
+    setResponseActionStatus(null);
+    try {
+      await exportResponse(destination, format, draft, response);
+      setResponseActionStatus(`Ответ сохранён: ${destination}`);
+    } catch (caught) {
+      setResponseActionStatus(errorMessage(caught));
+    }
+  }
+
+  async function saveCurrentFixture() {
+    if (!workspace || !draft || !response) return;
+    const extension = response.is_json ? "json" : response.body_kind === "image"
+      ? (response.content_type.split("/")[1]?.split(";")[0] || "bin")
+      : "txt";
+    const suggested = `${draft.name.toLocaleLowerCase("ru").replace(/[^a-zа-яё0-9]+/gi, "-").replace(/^-|-$/g, "") || "response"}.${extension}`;
+    const name = window.prompt("Имя fixture в папке workspace/fixtures", suggested);
+    if (!name) return;
+    setResponseActionStatus(null);
+    try {
+      const path = await saveResponseFixture(workspace.root_path, name, response);
+      setResponseActionStatus(`Fixture сохранён: ${path}`);
+    } catch (caught) {
+      setResponseActionStatus(errorMessage(caught));
+    }
+  }
+
+  async function openResponseCompare() {
+    if (!workspace || !response) return;
+    setCompareOpen(true);
+    setCompareBusy(true);
+    setCompareError(null);
+    try {
+      setHistoryEntries(await listHistory(workspace.config.id));
+    } catch (caught) {
+      setCompareError(errorMessage(caught));
+    } finally {
+      setCompareBusy(false);
+    }
+  }
+
   function closeWorkspace() {
     if (workspace) void closeWorkspaceSession(workspace.config.id);
     window.localStorage.removeItem(LAST_WORKSPACE_KEY);
@@ -572,7 +629,7 @@ function App() {
               <div className="request-workbench">
                 {importStatus && <div className="success-banner">{importStatus}</div>}
                 <RequestEditor request={draft} relativePath={selectedPath} collection={collection} saving={busy} sending={sending} error={error} securityReport={securityReport} copyStatus={copyStatus} onChange={setDraft} onCollectionChange={setCollection} onSave={() => void persistRequest()} onDelete={() => void deleteCurrentRequest()} onSend={() => void sendCurrentRequest()} onCopyCurl={() => void copyCurl()} onAuthorizeOAuth={() => void authorizeCurrentOAuth()} onRefreshOAuth={() => void refreshCurrentOAuth()} oauthBusy={oauthBusy} oauthStatus={oauthStatus} />
-                <ResponseViewer response={response} error={httpError} loading={sending} />
+                <ResponseViewer response={response} error={httpError} loading={sending} onExport={(format) => void exportCurrentResponse(format)} onSaveFixture={() => void saveCurrentFixture()} onCompare={() => void openResponseCompare()} actionStatus={responseActionStatus} />
               </div>
             ) : (
               <section className="editor-empty"><div><span className="empty-icon">→</span><h1>Выбери запрос</h1><p>Или создай новый запрос в текущем workspace.</p><button className="primary-button" type="button" onClick={newRequest}>Новый запрос</button></div></section>
@@ -595,6 +652,10 @@ function App() {
 
       {workspace && cookiesOpen && (
         <CookieDialog cookies={cookies} busy={cookiesBusy} error={cookiesError} onDelete={deleteSessionCookie} onClear={clearSessionCookies} onClose={() => setCookiesOpen(false)} />
+      )}
+
+      {workspace && response && compareOpen && (
+        <ResponseCompareDialog current={response} entries={historyEntries} busy={compareBusy} error={compareError} onLoad={(id) => getHistoryEntry(workspace.config.id, id)} onClose={() => setCompareOpen(false)} />
       )}
 
       {workspace && curlOpen && (

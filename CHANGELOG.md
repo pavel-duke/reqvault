@@ -2,6 +2,29 @@
 
 Формат основан на [Keep a Changelog](https://keepachangelog.com/ru/1.1.0/), версия проекта следует [Semantic Versioning](https://semver.org/lang/ru/).
 
+## [0.8.0] — 2026-08-13
+
+### Добавлено
+
+- сравнение текущего ответа с историей по status, заголовкам и JSON-путям;
+- безопасный экспорт тела, полного HTTP-ответа и HAR 1.2;
+- сохранение ответа как fixture внутри workspace без перезаписи файлов;
+- поиск по запросам, URL, методам, окружениям и истории;
+- preview изображений и изолированного HTML;
+- отдельное представление бинарных ответов с MIME type и размером.
+
+### Изменено
+
+- тело ответа читается потоком с preview-лимитом 8 МБ;
+- большие ответы больше не могут бесконтрольно занимать память приложения;
+- история хранит MIME type, тип тела и признак обрезанного preview.
+
+### Безопасность
+
+- HAR маскирует sensitive headers и credential в query;
+- request body намеренно не попадает в безопасный HAR;
+- HTML preview запускается в sandbox без разрешений.
+
 ## [0.7.0] — 2026-08-13
 
 ### Добавлено
@@ -119,3 +142,4 @@
 [0.5.0]: https://github.com/pavel-duke/reqvault/releases/tag/v0.5.0
 [0.6.0]: https://github.com/pavel-duke/reqvault/releases/tag/v0.6.0
 [0.7.0]: https://github.com/pavel-duke/reqvault/releases/tag/v0.7.0
+[0.8.0]: https://github.com/pavel-duke/reqvault/releases/tag/v0.8.0

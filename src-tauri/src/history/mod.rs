@@ -72,6 +72,9 @@ pub fn record(
         headers: response.headers.clone(),
         body: response.body.clone(),
         is_json: response.is_json,
+        content_type: response.content_type.clone(),
+        body_kind: response.body_kind.clone(),
+        truncated: response.truncated,
     };
     write_json(&folder.join(format!("{created_at_ms}-{id}.json")), &entry)?;
     enforce_limit(&folder, settings.max_entries as usize)
@@ -196,6 +199,9 @@ mod tests {
             headers: Vec::new(),
             body: "{}".to_string(),
             is_json: true,
+            content_type: "application/json".to_string(),
+            body_kind: "json".to_string(),
+            truncated: false,
         }
     }
 

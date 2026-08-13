@@ -13,6 +13,9 @@ const response: HttpResponse = {
   headers: [{ name: "content-type", value: "application/json" }],
   body: "{\"ok\":true,\"items\":[1,2]}",
   is_json: true,
+  content_type: "application/json",
+  body_kind: "json",
+  truncated: false,
 };
 
 describe("ResponseViewer", () => {
@@ -28,7 +31,7 @@ describe("ResponseViewer", () => {
     render(<ResponseViewer response={response} error={null} loading={false} />);
     await user.click(screen.getByRole("button", { name: /Заголовки/ }));
     expect(screen.getByText("content-type")).toBeInTheDocument();
-    expect(screen.getByText("application/json")).toBeInTheDocument();
+    expect(screen.getAllByText("application/json")).toHaveLength(2);
   });
 
   it("не ломается на пустом теле", () => {

@@ -7,6 +7,7 @@ mod importer;
 mod models;
 mod oauth;
 mod redaction;
+mod response_tools;
 mod runner;
 mod secrets;
 mod security;
@@ -56,6 +57,8 @@ pub fn run() {
             commands::session::delete_cookie,
             commands::session::clear_cookies,
             commands::session::close_workspace_session,
+            commands::response_tools::export_response,
+            commands::response_tools::save_response_fixture,
         ])
         .run(tauri::generate_context!())
         .expect("не удалось запустить ReqVault");
