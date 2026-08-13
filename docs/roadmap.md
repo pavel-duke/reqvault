@@ -19,9 +19,9 @@ Roadmap задаёт направление, но не заменяет пров
 
 ## 0.5.0 — GraphQL
 
-- [ ] отдельный редактор query и variables;
-- [ ] GraphQL body без ручной сборки JSON;
-- [ ] удобное отображение GraphQL errors.
+- [x] отдельный редактор query и variables;
+- [x] GraphQL body без ручной сборки JSON;
+- [x] удобное отображение GraphQL errors.
 
 ## 0.6.0 — потоки и постоянные соединения
 

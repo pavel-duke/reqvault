@@ -1,7 +1,7 @@
 {
   "name": "reqvault",
   "private": true,
-  "version": "0.4.0",
+  "version": "0.5.0",
   "description": "Локальный desktop-клиент для REST API с YAML-workspace и системным хранилищем секретов",
   "license": "Apache-2.0",
   "repository": {

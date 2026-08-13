@@ -2,6 +2,17 @@
 
 Формат основан на [Keep a Changelog](https://keepachangelog.com/ru/1.1.0/), версия проекта следует [Semantic Versioning](https://semver.org/lang/ru/).
 
+## [0.5.0] — 2026-08-13
+
+### Добавлено
+
+- отдельный GraphQL body с query, variables и operation name;
+- проверка GraphQL variables перед отправкой;
+- формирование стандартного GraphQL JSON payload в Rust;
+- безопасный cURL для GraphQL;
+- распознавание GraphQL payload при импорте cURL;
+- отдельный блок GraphQL `errors` с отображением path.
+
 ## [0.4.0] — 2026-08-13
 
 ### Добавлено
@@ -73,3 +84,4 @@
 [0.2.0]: https://github.com/pavel-duke/reqvault/releases/tag/v0.2.0
 [0.3.0]: https://github.com/pavel-duke/reqvault/releases/tag/v0.3.0
 [0.4.0]: https://github.com/pavel-duke/reqvault/releases/tag/v0.4.0
+[0.5.0]: https://github.com/pavel-duke/reqvault/releases/tag/v0.5.0
