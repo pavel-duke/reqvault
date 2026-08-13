@@ -831,6 +831,117 @@ code {
   border-top: 1px solid var(--border);
 }
 
+.security-lens {
+  margin-top: 16px;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--surface);
+}
+
+.security-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.security-title h2 {
+  margin: 2px 0 0;
+  font-size: 14px;
+}
+
+.security-title .secondary-button {
+  min-height: 32px;
+  font-size: 11px;
+}
+
+.copy-status {
+  margin-top: 10px;
+  padding: 8px 9px;
+  color: var(--accent);
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--accent) 9%, var(--surface));
+  font-size: 11px;
+}
+
+.security-stats {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 6px;
+  margin: 12px 0 0;
+}
+
+.security-stats > div {
+  min-width: 0;
+  padding: 7px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--background);
+}
+
+.security-stats dt {
+  color: var(--muted);
+  font-size: 9px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.security-stats dd {
+  overflow: hidden;
+  margin: 3px 0 0;
+  font-family: "SFMono-Regular", Consolas, monospace;
+  font-size: 11px;
+  font-weight: 650;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.security-stats .safe-value,
+.security-clear {
+  color: #167647;
+}
+
+:root[data-theme="dark"] .security-stats .safe-value,
+:root[data-theme="dark"] .security-clear {
+  color: #5fd09a;
+}
+
+.security-warnings {
+  margin-top: 10px;
+}
+
+.security-warnings p {
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+  margin: 6px 0 0;
+  color: #9a6700;
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.security-warnings span {
+  display: grid;
+  width: 16px;
+  height: 16px;
+  flex: 0 0 auto;
+  place-items: center;
+  border: 1px solid currentColor;
+  border-radius: 50%;
+  font-size: 9px;
+  font-weight: 800;
+}
+
+:root[data-theme="dark"] .security-warnings p {
+  color: #e6aa46;
+}
+
+.security-clear {
+  margin: 10px 0 0;
+  font-size: 11px;
+}
+
 .request-options .compact-field {
   width: 140px;
 }

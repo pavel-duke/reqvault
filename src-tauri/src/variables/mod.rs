@@ -74,12 +74,17 @@ where
     }
 }
 
-#[cfg(test)]
-fn secret_names(input: &str) -> Vec<String> {
+pub fn secret_names(input: &str) -> Vec<String> {
     secret_pattern()
         .captures_iter(input)
         .map(|captures| captures[1].to_string())
         .collect()
+}
+
+pub fn redact_secret_references(input: &str) -> String {
+    secret_pattern()
+        .replace_all(input, "***REDACTED***")
+        .into_owned()
 }
 
 #[cfg(test)]

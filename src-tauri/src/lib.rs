@@ -3,6 +3,7 @@ mod http;
 mod models;
 mod redaction;
 mod secrets;
+mod security;
 mod variables;
 mod workspace;
 
@@ -10,6 +11,7 @@ mod workspace;
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(tauri_plugin_opener::init())
         .invoke_handler(tauri::generate_handler![
             commands::workspace::create_workspace,
@@ -22,6 +24,8 @@ pub fn run() {
             commands::secrets::list_secrets,
             commands::secrets::save_secret,
             commands::secrets::delete_secret,
+            commands::security::inspect_request,
+            commands::security::generate_safe_curl,
         ])
         .run(tauri::generate_context!())
         .expect("не удалось запустить ReqVault");

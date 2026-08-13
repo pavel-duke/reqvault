@@ -6,11 +6,26 @@ import type {
   HttpResponse,
   RequestFile,
   RequestSummary,
+  SecurityReport,
   WorkspaceSnapshot,
 } from "./types";
 
 export function createWorkspace(path: string): Promise<WorkspaceSnapshot> {
   return invoke("create_workspace", { path });
+}
+
+export function inspectRequest(
+  request: RequestFile,
+  environment: EnvironmentFile | null,
+): Promise<SecurityReport> {
+  return invoke("inspect_request", { request, environment });
+}
+
+export function generateSafeCurl(
+  request: RequestFile,
+  environment: EnvironmentFile | null,
+): Promise<string> {
+  return invoke("generate_safe_curl", { request, environment });
 }
 
 export async function sendHttpRequest(

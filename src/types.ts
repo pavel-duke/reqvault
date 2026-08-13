@@ -79,4 +79,13 @@ export type HttpError = {
   error_type: string;
 };
 
+export type SecurityReport = {
+  https: boolean;
+  host: string;
+  secrets: number;
+  in_headers: number;
+  in_query: number;
+  warnings: string[];
+};
+
 export type Theme = "light" | "dark";

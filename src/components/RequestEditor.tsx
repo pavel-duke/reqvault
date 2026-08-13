@@ -1,7 +1,8 @@
 import { useMemo, useState, type KeyboardEvent } from "react";
 import { recordToRows, rowsToRecord } from "../request-utils";
-import type { AuthConfig, BodyConfig, KeyValue, RequestFile } from "../types";
+import type { AuthConfig, BodyConfig, KeyValue, RequestFile, SecurityReport } from "../types";
 import { KeyValueEditor } from "./KeyValueEditor";
+import { SecurityLens } from "./SecurityLens";
 
 type EditorTab = "query" | "headers" | "auth" | "body";
 
@@ -12,11 +13,14 @@ type Props = {
   saving: boolean;
   sending: boolean;
   error: string | null;
+  securityReport: SecurityReport | null;
+  copyStatus: string | null;
   onChange: (request: RequestFile) => void;
   onCollectionChange: (collection: string) => void;
   onSave: () => void;
   onDelete: () => void;
   onSend: () => void;
+  onCopyCurl: () => void;
 };
 
 const METHODS = ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"];
@@ -47,11 +51,14 @@ export function RequestEditor({
   saving,
   sending,
   error,
+  securityReport,
+  copyStatus,
   onChange,
   onCollectionChange,
   onSave,
   onDelete,
   onSend,
+  onCopyCurl,
 }: Props) {
   const [tab, setTab] = useState<EditorTab>("query");
   const headerRows = useMemo(() => recordToRows(request.headers), [request.headers]);
@@ -190,6 +197,7 @@ export function RequestEditor({
         <label className="compact-field"><span>Таймаут, мс</span><input type="number" min="1" max="600000" value={request.timeout_ms} onChange={(event) => patch({ timeout_ms: Number(event.currentTarget.value) || 1 })} /></label>
         <label className="check-field"><input type="checkbox" checked={request.follow_redirects} onChange={(event) => patch({ follow_redirects: event.currentTarget.checked })} /> Следовать редиректам</label>
       </div>
+      <SecurityLens report={securityReport} copyStatus={copyStatus} onCopy={onCopyCurl} />
     </section>
   );
 }

@@ -1,8 +1,11 @@
 import { useEffect, useState } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
+import { writeText } from "@tauri-apps/plugin-clipboard-manager";
 import {
   createWorkspace,
   errorMessage,
+  generateSafeCurl,
+  inspectRequest,
   listSecrets,
   openWorkspace,
   removeEnvironment,
@@ -20,7 +23,7 @@ import { SecretDialog } from "./components/SecretDialog";
 import { Sidebar } from "./components/Sidebar";
 import { StartScreen } from "./components/StartScreen";
 import { collectionFromPath, emptyRequest } from "./request-utils";
-import type { EnvironmentFile, HttpError, HttpResponse, RequestFile, RequestSummary, Theme, WorkspaceSnapshot } from "./types";
+import type { EnvironmentFile, HttpError, HttpResponse, RequestFile, RequestSummary, SecurityReport, Theme, WorkspaceSnapshot } from "./types";
 import "./App.css";
 
 const LAST_WORKSPACE_KEY = "reqvault.last-workspace";
@@ -49,6 +52,8 @@ function App() {
   const [secretNames, setSecretNames] = useState<string[]>([]);
   const [secretError, setSecretError] = useState<string | null>(null);
   const [secretBusy, setSecretBusy] = useState(false);
+  const [securityReport, setSecurityReport] = useState<SecurityReport | null>(null);
+  const [copyStatus, setCopyStatus] = useState<string | null>(null);
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
@@ -64,6 +69,18 @@ function App() {
       .catch(() => window.localStorage.removeItem(LAST_WORKSPACE_KEY))
       .finally(() => setBusy(false));
   }, []);
+
+  useEffect(() => {
+    if (!workspace || !draft || !draft.url.trim()) {
+      setSecurityReport(null);
+      return;
+    }
+    const environment = workspace.environments.find((item) => item.relative_path === activeEnvironment)?.environment ?? null;
+    const timer = window.setTimeout(() => {
+      inspectRequest(draft, environment).then(setSecurityReport).catch(() => setSecurityReport(null));
+    }, 180);
+    return () => window.clearTimeout(timer);
+  }, [activeEnvironment, draft, workspace]);
 
   function applyWorkspace(snapshot: WorkspaceSnapshot) {
     setWorkspace(snapshot);
@@ -171,6 +188,19 @@ function App() {
     }
   }
 
+  async function copyCurl() {
+    if (!workspace || !draft) return;
+    const environment = workspace.environments.find((item) => item.relative_path === activeEnvironment)?.environment ?? null;
+    setCopyStatus(null);
+    try {
+      const curl = await generateSafeCurl(draft, environment);
+      await writeText(curl);
+      setCopyStatus("Безопасный cURL скопирован. Значения секретов скрыты.");
+    } catch (caught) {
+      setCopyStatus(errorMessage(caught));
+    }
+  }
+
   async function persistRequest() {
     if (!workspace || !draft) return;
     setBusy(true);
@@ -268,7 +298,7 @@ function App() {
           <div className="main-panel">
             {draft ? (
               <div className="request-workbench">
-                <RequestEditor request={draft} relativePath={selectedPath} collection={collection} saving={busy} sending={sending} error={error} onChange={setDraft} onCollectionChange={setCollection} onSave={() => void persistRequest()} onDelete={() => void deleteCurrentRequest()} onSend={() => void sendCurrentRequest()} />
+                <RequestEditor request={draft} relativePath={selectedPath} collection={collection} saving={busy} sending={sending} error={error} securityReport={securityReport} copyStatus={copyStatus} onChange={setDraft} onCollectionChange={setCollection} onSave={() => void persistRequest()} onDelete={() => void deleteCurrentRequest()} onSend={() => void sendCurrentRequest()} onCopyCurl={() => void copyCurl()} />
                 <ResponseViewer response={response} error={httpError} loading={sending} />
               </div>
             ) : (
