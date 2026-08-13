@@ -7,14 +7,16 @@ import {
   removeEnvironment,
   removeRequest,
   saveEnvironment,
+  sendHttpRequest,
   saveRequest,
 } from "./api";
 import { EnvironmentDialog } from "./components/EnvironmentDialog";
 import { RequestEditor } from "./components/RequestEditor";
+import { ResponseViewer } from "./components/ResponseViewer";
 import { Sidebar } from "./components/Sidebar";
 import { StartScreen } from "./components/StartScreen";
 import { collectionFromPath, emptyRequest } from "./request-utils";
-import type { EnvironmentFile, RequestFile, RequestSummary, Theme, WorkspaceSnapshot } from "./types";
+import type { EnvironmentFile, HttpError, HttpResponse, RequestFile, RequestSummary, Theme, WorkspaceSnapshot } from "./types";
 import "./App.css";
 
 const LAST_WORKSPACE_KEY = "reqvault.last-workspace";
@@ -36,6 +38,9 @@ function App() {
   const [error, setError] = useState<string | null>(null);
   const [environmentsOpen, setEnvironmentsOpen] = useState(false);
   const [environmentError, setEnvironmentError] = useState<string | null>(null);
+  const [response, setResponse] = useState<HttpResponse | null>(null);
+  const [httpError, setHttpError] = useState<HttpError | null>(null);
+  const [sending, setSending] = useState(false);
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
@@ -84,6 +89,8 @@ function App() {
     setDraft(structuredClone(summary.request));
     setCollection(collectionFromPath(summary.relative_path));
     setError(null);
+    setResponse(null);
+    setHttpError(null);
   }
 
   function newRequest() {
@@ -91,12 +98,35 @@ function App() {
     setDraft(emptyRequest());
     setCollection("Общее");
     setError(null);
+    setResponse(null);
+    setHttpError(null);
+  }
+
+  async function sendCurrentRequest() {
+    if (!workspace || !draft) return;
+    const environment = workspace.environments.find((item) => item.relative_path === activeEnvironment)?.environment ?? null;
+    setSending(true);
+    setHttpError(null);
+    try {
+      setResponse(await sendHttpRequest(draft, environment));
+    } catch (caught) {
+      setResponse(null);
+      if (caught && typeof caught === "object" && "message" in caught) {
+        setHttpError(caught as HttpError);
+      } else {
+        setHttpError({ message: errorMessage(caught), details: null, error_type: "unknown" });
+      }
+    } finally {
+      setSending(false);
+    }
   }
 
   async function persistRequest() {
     if (!workspace || !draft) return;
     setBusy(true);
     setError(null);
+    setResponse(null);
+    setHttpError(null);
     try {
       const saved = await saveRequest(workspace.root_path, selectedPath, collection, draft);
       const snapshot = await openWorkspace(workspace.root_path);
@@ -186,7 +216,10 @@ function App() {
           />
           <div className="main-panel">
             {draft ? (
-              <RequestEditor request={draft} relativePath={selectedPath} collection={collection} saving={busy} error={error} onChange={setDraft} onCollectionChange={setCollection} onSave={() => void persistRequest()} onDelete={() => void deleteCurrentRequest()} />
+              <div className="request-workbench">
+                <RequestEditor request={draft} relativePath={selectedPath} collection={collection} saving={busy} sending={sending} error={error} onChange={setDraft} onCollectionChange={setCollection} onSave={() => void persistRequest()} onDelete={() => void deleteCurrentRequest()} onSend={() => void sendCurrentRequest()} />
+                <ResponseViewer response={response} error={httpError} loading={sending} />
+              </div>
             ) : (
               <section className="editor-empty"><div><span className="empty-icon">→</span><h1>Выбери запрос</h1><p>Или создай новый запрос в текущем workspace.</p><button className="primary-button" type="button" onClick={newRequest}>Новый запрос</button></div></section>
             )}

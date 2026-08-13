@@ -2,6 +2,8 @@ import { invoke } from "@tauri-apps/api/core";
 import type {
   EnvironmentFile,
   EnvironmentSummary,
+  HttpError,
+  HttpResponse,
   RequestFile,
   RequestSummary,
   WorkspaceSnapshot,
@@ -9,6 +11,17 @@ import type {
 
 export function createWorkspace(path: string): Promise<WorkspaceSnapshot> {
   return invoke("create_workspace", { path });
+}
+
+export async function sendHttpRequest(
+  request: RequestFile,
+  environment: EnvironmentFile | null,
+): Promise<HttpResponse> {
+  try {
+    return await invoke("send_request", { request, environment });
+  } catch (error) {
+    throw error as HttpError;
+  }
 }
 
 export function openWorkspace(path: string): Promise<WorkspaceSnapshot> {
@@ -56,6 +69,9 @@ export function removeEnvironment(
 }
 
 export function errorMessage(error: unknown): string {
+  if (error && typeof error === "object" && "message" in error && typeof error.message === "string") {
+    return error.message;
+  }
   if (typeof error === "string") return error;
   if (error instanceof Error) return error.message;
   return "Произошла неизвестная ошибка";

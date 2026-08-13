@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo, useState, type KeyboardEvent } from "react";
 import { recordToRows, rowsToRecord } from "../request-utils";
 import type { AuthConfig, BodyConfig, KeyValue, RequestFile } from "../types";
 import { KeyValueEditor } from "./KeyValueEditor";
@@ -10,11 +10,13 @@ type Props = {
   relativePath: string | null;
   collection: string;
   saving: boolean;
+  sending: boolean;
   error: string | null;
   onChange: (request: RequestFile) => void;
   onCollectionChange: (collection: string) => void;
   onSave: () => void;
   onDelete: () => void;
+  onSend: () => void;
 };
 
 const METHODS = ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"];
@@ -43,11 +45,13 @@ export function RequestEditor({
   relativePath,
   collection,
   saving,
+  sending,
   error,
   onChange,
   onCollectionChange,
   onSave,
   onDelete,
+  onSend,
 }: Props) {
   const [tab, setTab] = useState<EditorTab>("query");
   const headerRows = useMemo(() => recordToRows(request.headers), [request.headers]);
@@ -60,8 +64,15 @@ export function RequestEditor({
     patch({ headers: rowsToRecord(rows) });
   }
 
+  function handleKeyDown(event: KeyboardEvent<HTMLElement>) {
+    if ((event.ctrlKey || event.metaKey) && event.key === "Enter") {
+      event.preventDefault();
+      if (!sending && request.url.trim()) onSend();
+    }
+  }
+
   return (
-    <section className="request-editor">
+    <section className="request-editor" onKeyDown={handleKeyDown}>
       <div className="request-meta-row">
         <input
           className="request-name"
@@ -101,8 +112,8 @@ export function RequestEditor({
           placeholder="https://api.example.ru/v1/users"
           aria-label="URL запроса"
         />
-        <button className="send-button" type="button" disabled title="Отправка будет доступна после подключения HTTP-движка">
-          Отправить
+        <button className="send-button" type="button" onClick={onSend} disabled={sending || !request.url.trim()} title="Ctrl+Enter">
+          {sending ? "Отправляю…" : "Отправить"}
         </button>
       </div>
 

@@ -57,4 +57,26 @@ export type WorkspaceSnapshot = {
   environments: EnvironmentSummary[];
 };
 
+export type ResponseHeader = {
+  name: string;
+  value: string;
+};
+
+export type HttpResponse = {
+  request_id: string;
+  status: number;
+  status_text: string;
+  duration_ms: number;
+  size_bytes: number;
+  headers: ResponseHeader[];
+  body: string;
+  is_json: boolean;
+};
+
+export type HttpError = {
+  message: string;
+  details: string | null;
+  error_type: string;
+};
+
 export type Theme = "light" | "dark";

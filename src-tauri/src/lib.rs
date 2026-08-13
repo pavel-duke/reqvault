@@ -1,5 +1,8 @@
 mod commands;
+mod http;
 mod models;
+mod redaction;
+mod variables;
 mod workspace;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -14,6 +17,7 @@ pub fn run() {
             commands::workspace::delete_request,
             commands::workspace::save_environment,
             commands::workspace::delete_environment,
+            commands::http::send_request,
         ])
         .run(tauri::generate_context!())
         .expect("не удалось запустить ReqVault");
