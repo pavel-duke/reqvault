@@ -81,6 +81,13 @@ pub fn secret_names(input: &str) -> Vec<String> {
         .collect()
 }
 
+pub fn is_exact_secret_reference(input: &str) -> bool {
+    let trimmed = input.trim();
+    secret_pattern()
+        .find(trimmed)
+        .is_some_and(|matched| matched.start() == 0 && matched.end() == trimmed.len())
+}
+
 pub fn redact_secret_references(input: &str) -> String {
     secret_pattern()
         .replace_all(input, "***REDACTED***")

@@ -10,6 +10,10 @@ use crate::models::{
     EnvironmentFile, EnvironmentSummary, FORMAT_VERSION, RequestFile, RequestSummary,
     WorkspaceConfig, WorkspaceSnapshot,
 };
+use crate::{
+    models::{AuthConfig, ProxyConfig},
+    variables::is_exact_secret_reference,
+};
 
 const CONFIG_FILE: &str = "reqvault.yaml";
 
@@ -33,6 +37,10 @@ pub enum WorkspaceError {
     Write { path: String, message: String },
     #[error("Не удалось разобрать YAML в {path}: {message}")]
     InvalidYaml { path: String, message: String },
+    #[error(
+        "{0} нельзя сохранять открытым текстом. Добавь значение в Secret Vault и используй ссылку {{{{secret:NAME}}}}"
+    )]
+    UnsafeCredential(&'static str),
 }
 
 pub fn create(path: &Path, name: Option<String>) -> Result<WorkspaceSnapshot, WorkspaceError> {
@@ -132,6 +140,7 @@ pub fn save_request(
 ) -> Result<RequestSummary, WorkspaceError> {
     ensure_workspace(root)?;
     ensure_format(request.format_version)?;
+    validate_credentials(request)?;
 
     let relative = match relative_path {
         Some(value) => validate_relative_file(value, "requests")?,
@@ -147,6 +156,38 @@ pub fn save_request(
         relative_path: path_to_slashes(&relative),
         request: request.clone(),
     })
+}
+
+fn validate_credentials(request: &RequestFile) -> Result<(), WorkspaceError> {
+    let require_reference = |value: &str, label: &'static str| {
+        if value.trim().is_empty() || is_exact_secret_reference(value) {
+            Ok(())
+        } else {
+            Err(WorkspaceError::UnsafeCredential(label))
+        }
+    };
+    match &request.auth {
+        AuthConfig::None => {}
+        AuthConfig::Bearer { token } => require_reference(token, "Bearer token")?,
+        AuthConfig::Basic { password, .. } => require_reference(password, "пароль Basic Auth")?,
+        AuthConfig::ApiKeyHeader { value, .. } | AuthConfig::ApiKeyQuery { value, .. } => {
+            require_reference(value, "API key")?
+        }
+        AuthConfig::OAuth2 {
+            client_secret,
+            access_token,
+            refresh_token,
+            ..
+        } => {
+            require_reference(client_secret, "OAuth client secret")?;
+            require_reference(access_token, "OAuth access token")?;
+            require_reference(refresh_token, "OAuth refresh token")?;
+        }
+    }
+    if let ProxyConfig::Custom { password, .. } = &request.transport.proxy {
+        require_reference(password, "пароль proxy")?;
+    }
+    Ok(())
 }
 
 pub fn delete_request(root: &Path, relative_path: &str) -> Result<(), WorkspaceError> {

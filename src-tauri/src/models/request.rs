@@ -28,6 +28,52 @@ pub struct KeyValue {
     pub enabled: bool,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum MultipartField {
+    Text {
+        name: String,
+        value: String,
+        #[serde(default = "enabled_by_default")]
+        enabled: bool,
+    },
+    File {
+        name: String,
+        path: String,
+        #[serde(default)]
+        content_type: String,
+        #[serde(default = "enabled_by_default")]
+        enabled: bool,
+    },
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum ProxyConfig {
+    #[default]
+    None,
+    System,
+    Custom {
+        url: String,
+        #[serde(default)]
+        username: String,
+        #[serde(default)]
+        password: String,
+    },
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+pub struct TransportConfig {
+    #[serde(default)]
+    pub proxy: ProxyConfig,
+    #[serde(default)]
+    pub custom_ca_path: String,
+    #[serde(default)]
+    pub client_certificate_path: String,
+    #[serde(default)]
+    pub client_key_path: String,
+}
+
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum AuthConfig {
@@ -48,6 +94,19 @@ pub enum AuthConfig {
         name: String,
         value: String,
     },
+    OAuth2 {
+        grant_type: String,
+        authorization_url: String,
+        token_url: String,
+        client_id: String,
+        #[serde(default)]
+        client_secret: String,
+        #[serde(default)]
+        scopes: String,
+        access_token: String,
+        #[serde(default)]
+        refresh_token: String,
+    },
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
@@ -66,6 +125,10 @@ pub enum BodyConfig {
     FormUrlencoded {
         #[serde(default)]
         fields: Vec<KeyValue>,
+    },
+    Multipart {
+        #[serde(default)]
+        fields: Vec<MultipartField>,
     },
 }
 
@@ -90,6 +153,8 @@ pub struct RequestFile {
     pub timeout_ms: u64,
     #[serde(default = "enabled_by_default")]
     pub follow_redirects: bool,
+    #[serde(default)]
+    pub transport: TransportConfig,
 }
 
 impl Default for RequestFile {
@@ -105,6 +170,7 @@ impl Default for RequestFile {
             body: BodyConfig::None,
             timeout_ms: default_timeout_ms(),
             follow_redirects: true,
+            transport: TransportConfig::default(),
         }
     }
 }

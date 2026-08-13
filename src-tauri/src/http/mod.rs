@@ -1,7 +1,7 @@
-use std::time::Duration;
+use std::{fs, time::Duration};
 
 use reqwest::{
-    Client, Method,
+    Certificate, Client, Identity, Method, Proxy,
     header::{CONTENT_TYPE, HeaderMap, HeaderName, HeaderValue},
     redirect::Policy,
 };
@@ -10,11 +10,11 @@ use uuid::Uuid;
 
 use crate::{
     models::{
-        AuthConfig, BodyConfig, EnvironmentFile, HttpError, HttpResponse, RequestFile,
+        AuthConfig, BodyConfig, EnvironmentFile, HttpError, HttpResponse, ProxyConfig, RequestFile,
         ResponseHeader,
     },
     redaction::{redact_header, redact_text},
-    variables::{ResolveError, resolve_secrets, resolve_variables},
+    variables::{ResolveError, is_exact_secret_reference, resolve_secrets, resolve_variables},
 };
 
 const ALLOWED_METHODS: &[&str] = &["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"];
@@ -28,6 +28,25 @@ struct PreparedRequest {
     timeout: Duration,
     follow_redirects: bool,
     secret_values: Vec<String>,
+    transport: PreparedTransport,
+}
+
+#[derive(Debug, Clone)]
+struct PreparedTransport {
+    proxy: PreparedProxy,
+    custom_ca: Option<Vec<u8>>,
+    identity: Option<Vec<u8>>,
+}
+
+#[derive(Debug, Clone)]
+enum PreparedProxy {
+    None,
+    System,
+    Custom {
+        url: String,
+        username: String,
+        password: String,
+    },
 }
 
 pub async fn send<F>(
@@ -50,6 +69,7 @@ fn prepare<F>(
 where
     F: FnMut(&str) -> Result<String, ResolveError>,
 {
+    validate_credentials(request)?;
     let variables = environment
         .map(|environment| &environment.variables)
         .cloned()
@@ -124,6 +144,11 @@ where
                 .map_err(|_| PrepareError::InvalidHeaderValue(resolved_name))?;
             headers.insert(header_name, header_value);
         }
+        AuthConfig::OAuth2 { access_token, .. } => {
+            let value = HeaderValue::from_str(&format!("Bearer {}", resolve(access_token)?))
+                .map_err(|_| PrepareError::InvalidHeaderValue("Authorization".to_string()))?;
+            headers.insert(reqwest::header::AUTHORIZATION, value);
+        }
     }
 
     let body = match &request.body {
@@ -154,6 +179,68 @@ where
                 })
                 .collect::<Result<Vec<_>, PrepareError>>()?,
         },
+        BodyConfig::Multipart { fields } => BodyConfig::Multipart {
+            fields: fields
+                .iter()
+                .filter(|field| match field {
+                    crate::models::MultipartField::Text { name, enabled, .. }
+                    | crate::models::MultipartField::File { name, enabled, .. } => {
+                        *enabled && !name.is_empty()
+                    }
+                })
+                .map(|field| match field {
+                    crate::models::MultipartField::Text { name, value, .. } => {
+                        Ok(crate::models::MultipartField::Text {
+                            name: resolve(name)?,
+                            value: resolve(value)?,
+                            enabled: true,
+                        })
+                    }
+                    crate::models::MultipartField::File {
+                        name,
+                        path,
+                        content_type,
+                        ..
+                    } => Ok(crate::models::MultipartField::File {
+                        name: resolve(name)?,
+                        path: resolve(path)?,
+                        content_type: resolve(content_type)?,
+                        enabled: true,
+                    }),
+                })
+                .collect::<Result<Vec<_>, PrepareError>>()?,
+        },
+    };
+
+    let proxy = match &request.transport.proxy {
+        ProxyConfig::None => PreparedProxy::None,
+        ProxyConfig::System => PreparedProxy::System,
+        ProxyConfig::Custom {
+            url,
+            username,
+            password,
+        } => PreparedProxy::Custom {
+            url: resolve(url)?,
+            username: resolve(username)?,
+            password: resolve(password)?,
+        },
+    };
+    let custom_ca = read_optional_pem(&resolve(&request.transport.custom_ca_path)?, "custom CA")?;
+    let certificate_path = resolve(&request.transport.client_certificate_path)?;
+    let key_path = resolve(&request.transport.client_key_path)?;
+    let identity = match (certificate_path.is_empty(), key_path.is_empty()) {
+        (true, true) => None,
+        (false, false) => {
+            let mut certificate = fs::read(&certificate_path).map_err(|error| {
+                PrepareError::ReadTlsFile("клиентский сертификат", error.to_string())
+            })?;
+            let key = fs::read(&key_path)
+                .map_err(|error| PrepareError::ReadTlsFile("приватный ключ", error.to_string()))?;
+            certificate.push(b'\n');
+            certificate.extend(key);
+            Some(certificate)
+        }
+        _ => return Err(PrepareError::IncompleteIdentity),
     };
 
     Ok(PreparedRequest {
@@ -164,29 +251,117 @@ where
         timeout: Duration::from_millis(request.timeout_ms.clamp(1, 600_000)),
         follow_redirects: request.follow_redirects,
         secret_values,
+        transport: PreparedTransport {
+            proxy,
+            custom_ca,
+            identity,
+        },
     })
+}
+
+fn validate_credentials(request: &RequestFile) -> Result<(), PrepareError> {
+    let require_reference = |value: &str, label: &'static str| {
+        if value.trim().is_empty() || is_exact_secret_reference(value) {
+            Ok(())
+        } else {
+            Err(PrepareError::UnsafeCredential(label))
+        }
+    };
+    match &request.auth {
+        AuthConfig::None => {}
+        AuthConfig::Bearer { token } => require_reference(token, "Bearer token")?,
+        AuthConfig::Basic { password, .. } => require_reference(password, "пароль Basic Auth")?,
+        AuthConfig::ApiKeyHeader { value, .. } | AuthConfig::ApiKeyQuery { value, .. } => {
+            require_reference(value, "API key")?
+        }
+        AuthConfig::OAuth2 {
+            client_secret,
+            access_token,
+            refresh_token,
+            ..
+        } => {
+            require_reference(client_secret, "OAuth client secret")?;
+            require_reference(access_token, "OAuth access token")?;
+            require_reference(refresh_token, "OAuth refresh token")?;
+        }
+    }
+    if let ProxyConfig::Custom { password, .. } = &request.transport.proxy {
+        require_reference(password, "пароль proxy")?;
+    }
+    Ok(())
+}
+
+fn read_optional_pem(path: &str, purpose: &'static str) -> Result<Option<Vec<u8>>, PrepareError> {
+    if path.trim().is_empty() {
+        return Ok(None);
+    }
+    fs::read(path)
+        .map(Some)
+        .map_err(|error| PrepareError::ReadTlsFile(purpose, error.to_string()))
 }
 
 async fn execute(prepared: PreparedRequest) -> Result<HttpResponse, HttpError> {
     let request_id = Uuid::new_v4().to_string();
     let host = prepared.url.host_str().unwrap_or("сервер").to_string();
-    let client = Client::builder()
-        .no_proxy()
+    let mut client_builder = Client::builder()
         .redirect(if prepared.follow_redirects {
             Policy::limited(10)
         } else {
             Policy::none()
         })
-        .timeout(prepared.timeout)
-        .build()
-        .map_err(|error| {
+        .timeout(prepared.timeout);
+    client_builder = match &prepared.transport.proxy {
+        PreparedProxy::None => client_builder.no_proxy(),
+        PreparedProxy::System => client_builder,
+        PreparedProxy::Custom {
+            url,
+            username,
+            password,
+        } => {
+            let mut proxy = Proxy::all(url).map_err(|error| {
+                request_error(
+                    "Не удалось настроить proxy",
+                    error,
+                    &prepared.secret_values,
+                    "proxy",
+                )
+            })?;
+            if !username.is_empty() || !password.is_empty() {
+                proxy = proxy.basic_auth(username, password);
+            }
+            client_builder.proxy(proxy)
+        }
+    };
+    if let Some(pem) = &prepared.transport.custom_ca {
+        let certificate = Certificate::from_pem(pem).map_err(|error| {
             request_error(
-                "Не удалось подготовить HTTP-клиент",
+                "Не удалось прочитать custom CA",
                 error,
                 &prepared.secret_values,
-                "client",
+                "tls",
             )
         })?;
+        client_builder = client_builder.add_root_certificate(certificate);
+    }
+    if let Some(pem) = &prepared.transport.identity {
+        let identity = Identity::from_pem(pem).map_err(|error| {
+            request_error(
+                "Не удалось прочитать клиентский сертификат или ключ",
+                error,
+                &prepared.secret_values,
+                "tls",
+            )
+        })?;
+        client_builder = client_builder.identity(identity);
+    }
+    let client = client_builder.build().map_err(|error| {
+        request_error(
+            "Не удалось подготовить HTTP-клиент",
+            error,
+            &prepared.secret_values,
+            "client",
+        )
+    })?;
 
     let mut builder = client
         .request(prepared.method, prepared.url)
@@ -214,6 +389,46 @@ async fn execute(prepared: PreparedRequest) -> Result<HttpResponse, HttpError> {
                 .map(|field| (field.name.clone(), field.value.clone()))
                 .collect::<Vec<_>>();
             builder.form(&form)
+        }
+        BodyConfig::Multipart { fields } => {
+            let mut form = reqwest::multipart::Form::new();
+            for field in fields {
+                match field {
+                    crate::models::MultipartField::Text { name, value, .. } => {
+                        form = form.text(name.clone(), value.clone());
+                    }
+                    crate::models::MultipartField::File {
+                        name,
+                        path,
+                        content_type,
+                        ..
+                    } => {
+                        let bytes = fs::read(path).map_err(|error| HttpError {
+                            message: format!("Не удалось прочитать файл для поля {name}"),
+                            details: Some(redact_text(&error.to_string(), &prepared.secret_values)),
+                            error_type: "multipart".to_string(),
+                        })?;
+                        let file_name = std::path::Path::new(path)
+                            .file_name()
+                            .and_then(|value| value.to_str())
+                            .unwrap_or("file")
+                            .to_string();
+                        let mut part = reqwest::multipart::Part::bytes(bytes).file_name(file_name);
+                        if !content_type.trim().is_empty() {
+                            part = part.mime_str(content_type).map_err(|error| HttpError {
+                                message: format!("Некорректный Content-Type для поля {name}"),
+                                details: Some(redact_text(
+                                    &error.to_string(),
+                                    &prepared.secret_values,
+                                )),
+                                error_type: "multipart".to_string(),
+                            })?;
+                        }
+                        form = form.part(name.clone(), part);
+                    }
+                }
+            }
+            builder.multipart(form)
         }
     };
 
@@ -284,6 +499,12 @@ enum PrepareError {
     InvalidHeaderValue(String),
     #[error("Тело запроса содержит неправильный JSON: {0}")]
     InvalidJson(String),
+    #[error("Не удалось прочитать {0}: {1}")]
+    ReadTlsFile(&'static str, String),
+    #[error("Для mTLS нужно выбрать и сертификат, и приватный ключ")]
+    IncompleteIdentity,
+    #[error("{0} нужно хранить в Secret Vault и указывать как {{{{secret:NAME}}}}")]
+    UnsafeCredential(&'static str),
 }
 
 fn resolve_error(error: PrepareError) -> HttpError {

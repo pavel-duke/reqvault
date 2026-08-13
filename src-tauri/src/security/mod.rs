@@ -3,7 +3,10 @@ use std::collections::BTreeMap;
 use url::Url;
 
 use crate::{
-    models::{AuthConfig, BodyConfig, EnvironmentFile, RequestFile, SecurityReport},
+    models::{
+        AuthConfig, BodyConfig, EnvironmentFile, MultipartField, ProxyConfig, RequestFile,
+        SecurityReport,
+    },
     redaction::{is_sensitive_header, redact_header},
     variables::{redact_secret_references, resolve_variables, secret_names},
 };
@@ -61,6 +64,18 @@ pub fn analyze(request: &RequestFile, environment: Option<&EnvironmentFile>) -> 
         AuthConfig::ApiKeyQuery { name, value } => {
             let count = reference_count(name) + reference_count(value);
             in_query += count;
+            count
+        }
+        AuthConfig::OAuth2 {
+            access_token,
+            client_secret,
+            refresh_token,
+            ..
+        } => {
+            let count = reference_count(access_token)
+                + reference_count(client_secret)
+                + reference_count(refresh_token);
+            in_headers += reference_count(access_token);
             count
         }
     };
@@ -173,6 +188,10 @@ pub fn curl(
             "  -H {}",
             shell_quote(&format!("{}: ***REDACTED***", safe(name)?))
         )),
+        AuthConfig::OAuth2 { .. } => parts.push(format!(
+            "  -H {}",
+            shell_quote("Authorization: Bearer ***REDACTED***")
+        )),
     }
 
     match &request.body {
@@ -213,6 +232,74 @@ pub fn curl(
                 ));
             }
         }
+        BodyConfig::Multipart { fields } => {
+            for field in fields {
+                match field {
+                    MultipartField::Text {
+                        name,
+                        value,
+                        enabled: true,
+                    } if !name.is_empty() => parts.push(format!(
+                        "  -F {}",
+                        shell_quote(&format!("{}={}", safe(name)?, safe(value)?))
+                    )),
+                    MultipartField::File {
+                        name,
+                        path,
+                        content_type,
+                        enabled: true,
+                    } if !name.is_empty() => {
+                        let suffix = if content_type.is_empty() {
+                            String::new()
+                        } else {
+                            format!(";type={}", safe(content_type)?)
+                        };
+                        parts.push(format!(
+                            "  -F {}",
+                            shell_quote(&format!("{}=@{}{}", safe(name)?, safe(path)?, suffix))
+                        ));
+                    }
+                    _ => {}
+                }
+            }
+        }
+    }
+
+    match &request.transport.proxy {
+        ProxyConfig::None => parts.push("  --noproxy '*'".to_string()),
+        ProxyConfig::System => {}
+        ProxyConfig::Custom {
+            url,
+            username,
+            password: _,
+        } => {
+            let safe_url = safe_proxy_url(&safe(url)?)?;
+            parts.push(format!("  --proxy {}", shell_quote(&safe_url)));
+            if !username.is_empty() {
+                parts.push(format!(
+                    "  --proxy-user {}",
+                    shell_quote(&format!("{}:***REDACTED***", safe(username)?))
+                ));
+            }
+        }
+    }
+    if !request.transport.custom_ca_path.is_empty() {
+        parts.push(format!(
+            "  --cacert {}",
+            shell_quote(&safe(&request.transport.custom_ca_path)?)
+        ));
+    }
+    if !request.transport.client_certificate_path.is_empty() {
+        parts.push(format!(
+            "  --cert {}",
+            shell_quote(&safe(&request.transport.client_certificate_path)?)
+        ));
+    }
+    if !request.transport.client_key_path.is_empty() {
+        parts.push(format!(
+            "  --key {}",
+            shell_quote(&safe(&request.transport.client_key_path)?)
+        ));
     }
 
     Ok(parts.join(" \\\n"))
@@ -241,7 +328,35 @@ fn body_strings(body: &BodyConfig) -> Vec<&str> {
             .filter(|field| field.enabled)
             .flat_map(|field| [field.name.as_str(), field.value.as_str()])
             .collect(),
+        BodyConfig::Multipart { fields } => fields
+            .iter()
+            .filter_map(|field| match field {
+                MultipartField::Text {
+                    name,
+                    value,
+                    enabled: true,
+                } => Some(vec![name.as_str(), value.as_str()]),
+                MultipartField::File {
+                    name,
+                    path,
+                    content_type,
+                    enabled: true,
+                } => Some(vec![name.as_str(), path.as_str(), content_type.as_str()]),
+                _ => None,
+            })
+            .flatten()
+            .collect(),
     }
+}
+
+fn safe_proxy_url(value: &str) -> Result<String, String> {
+    let mut url = Url::parse(value).map_err(|_| "Укажи корректный URL proxy".to_string())?;
+    if url.scheme() != "http" && url.scheme() != "https" && url.scheme() != "socks5" {
+        return Err("Proxy должен использовать http://, https:// или socks5://".to_string());
+    }
+    let _ = url.set_username("");
+    let _ = url.set_password(None);
+    Ok(url.to_string())
 }
 
 fn shell_quote(value: &str) -> String {

@@ -1,5 +1,7 @@
+use tauri::Manager;
+
 use crate::{
-    http,
+    history, http,
     models::{EnvironmentFile, HttpError, HttpResponse, RequestFile},
     secrets::{self, KeyringBackend},
     variables::ResolveError,
@@ -7,6 +9,7 @@ use crate::{
 
 #[tauri::command]
 pub async fn send_request(
+    app: tauri::AppHandle,
     request: RequestFile,
     environment: Option<EnvironmentFile>,
     workspace_id: String,
@@ -16,11 +19,15 @@ pub async fn send_request(
         details: None,
         error_type: "secret_storage".to_string(),
     })?;
-    http::send(&request, environment.as_ref(), &mut |name| {
+    let response = http::send(&request, environment.as_ref(), &mut |name| {
         secrets::get(&backend, name).map_err(|error| match error {
             secrets::SecretError::NotFound(name) => ResolveError::MissingSecret(name),
             _ => ResolveError::SecretStorage,
         })
     })
-    .await
+    .await?;
+    if let Ok(root) = app.path().app_local_data_dir() {
+        let _ = history::record(&root, &workspace_id, &request, &response);
+    }
+    Ok(response)
 }

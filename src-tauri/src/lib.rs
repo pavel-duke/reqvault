@@ -1,6 +1,9 @@
 mod commands;
+mod history;
 mod http;
+mod importer;
 mod models;
+mod oauth;
 mod redaction;
 mod secrets;
 mod security;
@@ -20,6 +23,14 @@ pub fn run() {
             commands::workspace::save_environment,
             commands::workspace::delete_environment,
             commands::http::send_request,
+            commands::history::get_history_settings,
+            commands::history::set_history_settings,
+            commands::history::list_history,
+            commands::history::get_history_entry,
+            commands::history::delete_history_entry,
+            commands::history::clear_history,
+            commands::importer::import_collection,
+            commands::oauth::authorize_oauth,
             commands::secrets::list_secrets,
             commands::secrets::save_secret,
             commands::secrets::delete_secret,
