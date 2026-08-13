@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { recordToRows, rowsToRecord } from "../request-utils";
 import type { EnvironmentFile, EnvironmentSummary, KeyValue } from "../types";
 import { KeyValueEditor } from "./KeyValueEditor";
@@ -21,12 +21,6 @@ export function EnvironmentDialog({ environments, activePath, busy, error, onSav
   const [relativePath, setRelativePath] = useState<string | null>(selected?.relative_path ?? null);
   const [name, setName] = useState(selected?.environment.name ?? "local");
   const [rows, setRows] = useState<KeyValue[]>(recordToRows(selected?.environment.variables ?? {}));
-
-  useEffect(() => {
-    setRelativePath(selected?.relative_path ?? null);
-    setName(selected?.environment.name ?? "local");
-    setRows(recordToRows(selected?.environment.variables ?? {}));
-  }, [selected]);
 
   function choose(path: string) {
     const item = environments.find((environment) => environment.relative_path === path);

@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent } from "react";
+import { useState, type FormEvent } from "react";
 
 type Props = {
   names: string[];
@@ -12,10 +12,6 @@ type Props = {
 export function SecretDialog({ names, loading, error, onSave, onDelete, onClose }: Props) {
   const [name, setName] = useState("");
   const [value, setValue] = useState("");
-
-  useEffect(() => {
-    setValue("");
-  }, [names]);
 
   async function submit(event: FormEvent) {
     event.preventDefault();

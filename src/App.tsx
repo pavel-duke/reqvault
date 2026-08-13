@@ -41,7 +41,7 @@ function App() {
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
   const [draft, setDraft] = useState<RequestFile | null>(null);
   const [collection, setCollection] = useState("Общее");
-  const [busy, setBusy] = useState(false);
+  const [busy, setBusy] = useState(() => Boolean(window.localStorage.getItem(LAST_WORKSPACE_KEY)));
   const [error, setError] = useState<string | null>(null);
   const [environmentsOpen, setEnvironmentsOpen] = useState(false);
   const [environmentError, setEnvironmentError] = useState<string | null>(null);
@@ -63,7 +63,6 @@ function App() {
   useEffect(() => {
     const path = window.localStorage.getItem(LAST_WORKSPACE_KEY);
     if (!path) return;
-    setBusy(true);
     openWorkspace(path)
       .then((snapshot) => applyWorkspace(snapshot))
       .catch(() => window.localStorage.removeItem(LAST_WORKSPACE_KEY))
@@ -72,8 +71,8 @@ function App() {
 
   useEffect(() => {
     if (!workspace || !draft || !draft.url.trim()) {
-      setSecurityReport(null);
-      return;
+      const clearTimer = window.setTimeout(() => setSecurityReport(null), 0);
+      return () => window.clearTimeout(clearTimer);
     }
     const environment = workspace.environments.find((item) => item.relative_path === activeEnvironment)?.environment ?? null;
     const timer = window.setTimeout(() => {
@@ -309,7 +308,7 @@ function App() {
       )}
 
       {workspace && environmentsOpen && (
-        <EnvironmentDialog environments={workspace.environments} activePath={activeEnvironment} busy={busy} error={environmentError} onSave={(path, environment) => void persistEnvironment(path, environment)} onDelete={(path) => void deleteSelectedEnvironment(path)} onClose={() => setEnvironmentsOpen(false)} />
+        <EnvironmentDialog key={`${activeEnvironment}-${workspace.environments.length}`} environments={workspace.environments} activePath={activeEnvironment} busy={busy} error={environmentError} onSave={(path, environment) => void persistEnvironment(path, environment)} onDelete={(path) => void deleteSelectedEnvironment(path)} onClose={() => setEnvironmentsOpen(false)} />
       )}
 
       {workspace && secretsOpen && (
