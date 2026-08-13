@@ -1,0 +1,30 @@
+format_version: 1
+name: Загрузить файл
+method: POST
+url: "{{BASE_URL}}/files"
+headers:
+  Accept: application/json
+query: []
+auth:
+  type: bearer
+  token: "{{secret:API_TOKEN}}"
+body:
+  type: multipart
+  fields:
+    - type: text
+      name: description
+      value: test file
+      enabled: true
+    - type: file
+      name: file
+      path: ""
+      content_type: application/octet-stream
+      enabled: false
+timeout_ms: 30000
+follow_redirects: true
+transport:
+  proxy:
+    type: none
+  custom_ca_path: ""
+  client_certificate_path: ""
+  client_key_path: ""
