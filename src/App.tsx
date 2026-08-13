@@ -243,8 +243,8 @@ function App() {
     try {
       const result = await importCollection(workspace.root_path, selected);
       applyWorkspace(result.workspace);
-      const warning = result.warnings.length ? ` Предупреждений: ${result.warnings.length}.` : "";
-      setImportStatus(`${result.source}: импортировано запросов ${result.imported_requests}, окружений ${result.imported_environments}.${warning}`);
+      const warnings = result.warnings.length ? `\n${result.warnings.join("\n")}` : "";
+      setImportStatus(`${result.source}: импортировано запросов ${result.imported_requests}, окружений ${result.imported_environments}.${warnings}`);
     } catch (caught) {
       setError(errorMessage(caught));
     } finally {

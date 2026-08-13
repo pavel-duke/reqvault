@@ -1159,6 +1159,7 @@ code {
   color: var(--success, #54c88a);
   background: color-mix(in srgb, currentColor 9%, transparent);
   border-bottom: 1px solid var(--border);
+  white-space: pre-line;
 }
 
 .history-modal {
