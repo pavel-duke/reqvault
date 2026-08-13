@@ -1,0 +1,17 @@
+format_version: 1
+name: Профиль пользователя
+method: GET
+url: "{{BASE_URL}}/users/{{USER_ID}}"
+headers:
+  Accept: application/json
+query: []
+auth:
+  type: none
+body:
+  type: none
+timeout_ms: 5000
+follow_redirects: true
+tests:
+  - type: status
+    expected: 200
+    enabled: true

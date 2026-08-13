@@ -42,6 +42,7 @@ import {
 } from "./api";
 import { EnvironmentDialog } from "./components/EnvironmentDialog";
 import { DiagnosticsDialog } from "./components/DiagnosticsDialog";
+import { Icon, ReqVaultMark } from "./components/Icon";
 import { CurlImportDialog } from "./components/CurlImportDialog";
 import { CollectionRunnerDialog } from "./components/CollectionRunnerDialog";
 import { CookieDialog } from "./components/CookieDialog";
@@ -53,6 +54,8 @@ import { SecretDialog } from "./components/SecretDialog";
 import { Sidebar } from "./components/Sidebar";
 import { StartScreen } from "./components/StartScreen";
 import { WorkspaceSettingsDialog } from "./components/WorkspaceSettingsDialog";
+import { WorkspaceRail } from "./components/WorkspaceRail";
+import { WorkspaceOverview } from "./components/WorkspaceOverview";
 import { StreamDialog } from "./components/StreamDialog";
 import { collectionFromPath, emptyRequest } from "./request-utils";
 import { draftStorageKey, sanitizeDraft, type StoredDraft } from "./draft-storage";
@@ -823,23 +826,23 @@ function App() {
     <main className="app-shell">
       <a className="skip-link" href="#main-workspace">Перейти к редактору</a>
       <header className="topbar">
-        <div className="brand" aria-label="ReqVault"><span className="brand-mark" aria-hidden="true">RV</span><span>ReqVault</span></div>
-        <button className="icon-button" type="button" onClick={() => setTheme(theme === "dark" ? "light" : "dark")} aria-label={theme === "dark" ? "Включить светлую тему" : "Включить тёмную тему"} title={theme === "dark" ? "Светлая тема" : "Тёмная тема"}>{theme === "dark" ? "☀" : "☾"}</button>
+        <div className="topbar-leading">
+          <div className="brand" aria-label="ReqVault"><ReqVaultMark className="brand-mark" /><span>ReqVault</span><em>1.0</em></div>
+          {workspace && <div className="workspace-breadcrumb"><span>/</span><strong>{workspace.config.name}</strong></div>}
+        </div>
+        <div className="topbar-actions">
+          {workspace && <button className="command-trigger" type="button" onClick={() => document.querySelector<HTMLInputElement>("#workspace-search")?.focus()}><Icon name="search" /><span>Быстрый поиск</span><kbd>Ctrl K</kbd></button>}
+          <span className="local-status"><Icon name="shield" />Локально</span>
+          <button className="icon-button" type="button" onClick={() => setTheme(theme === "dark" ? "light" : "dark")} aria-label={theme === "dark" ? "Включить светлую тему" : "Включить тёмную тему"} title={theme === "dark" ? "Светлая тема" : "Тёмная тема"}><Icon name={theme === "dark" ? "sun" : "moon"} /></button>
+        </div>
       </header>
 
       {!workspace ? (
         <StartScreen busy={busy} error={error} onCreate={() => void pickWorkspace("create")} onOpen={() => void pickWorkspace("open")} onImport={() => void importWorkspaceBundle()} />
       ) : (
         <div className="workspace-shell">
-          <Sidebar
-            workspace={workspace}
-            selectedPath={selectedPath}
-            activeEnvironment={activeEnvironment}
-            onSelectRequest={selectRequest}
-            onNewRequest={newRequest}
-            onEnvironmentChange={setActiveEnvironment}
-            onEditEnvironments={() => { setEnvironmentError(null); setEnvironmentsOpen(true); }}
-            onEditSecrets={() => void openSecrets()}
+          <WorkspaceRail
+            guardEnabled={workspace.config.production_guard.enabled}
             onImport={() => void importFile()}
             onImportCurl={() => { setCurlError(null); setCurlOpen(true); }}
             onExport={() => void exportCurrentWorkspace()}
@@ -849,6 +852,16 @@ function App() {
             onDiagnostics={() => void openDiagnostics()}
             onRun={() => { setRunnerError(null); setRunnerReport(null); setRunnerOpen(true); }}
             onStream={() => setStreamOpen(true)}
+          />
+          <Sidebar
+            workspace={workspace}
+            selectedPath={selectedPath}
+            activeEnvironment={activeEnvironment}
+            onSelectRequest={selectRequest}
+            onNewRequest={newRequest}
+            onEnvironmentChange={setActiveEnvironment}
+            onEditEnvironments={() => { setEnvironmentError(null); setEnvironmentsOpen(true); }}
+            onEditSecrets={() => void openSecrets()}
             onClose={closeWorkspace}
           />
           <div className="main-panel" id="main-workspace" tabIndex={-1}>
@@ -857,11 +870,11 @@ function App() {
             {draft ? (
               <div className="request-workbench">
                 {importStatus && <div className="success-banner">{importStatus}</div>}
-                <RequestEditor request={draft} relativePath={selectedPath} collection={collection} saving={busy} sending={sending} error={error} securityReport={securityReport} copyStatus={copyStatus} onChange={updateDraft} onCollectionChange={(value) => { setCollection(value); setDraftDirty(true); }} onSave={() => void persistRequest()} onDelete={() => void deleteCurrentRequest()} onSend={() => void sendCurrentRequest()} onCopyCurl={() => void copyCurl()} onAuthorizeOAuth={() => void authorizeCurrentOAuth()} onRefreshOAuth={() => void refreshCurrentOAuth()} oauthBusy={oauthBusy} oauthStatus={oauthStatus} />
+                <RequestEditor request={draft} relativePath={selectedPath} collection={collection} saving={busy} sending={sending} error={error} securityReport={securityReport} copyStatus={copyStatus} dirty={draftDirty} onChange={updateDraft} onCollectionChange={(value) => { setCollection(value); setDraftDirty(true); }} onSave={() => void persistRequest()} onDelete={() => void deleteCurrentRequest()} onSend={() => void sendCurrentRequest()} onCopyCurl={() => void copyCurl()} onAuthorizeOAuth={() => void authorizeCurrentOAuth()} onRefreshOAuth={() => void refreshCurrentOAuth()} oauthBusy={oauthBusy} oauthStatus={oauthStatus} />
                 <ResponseViewer response={response} error={httpError} loading={sending} onExport={(format) => void exportCurrentResponse(format)} onSaveFixture={() => void saveCurrentFixture()} onCompare={() => void openResponseCompare()} actionStatus={responseActionStatus} />
               </div>
             ) : (
-              <section className="editor-empty"><div><span className="empty-icon">→</span><h1>Выбери запрос</h1><p>Или создай новый запрос в текущем workspace.</p><button className="primary-button" type="button" onClick={newRequest}>Новый запрос</button></div></section>
+              <WorkspaceOverview workspace={workspace} onNewRequest={newRequest} onImport={() => void importFile()} onRun={() => { setRunnerError(null); setRunnerReport(null); setRunnerOpen(true); }} />
             )}
           </div>
         </div>

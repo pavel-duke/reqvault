@@ -34,7 +34,7 @@ pub enum ResponseAssertion {
         enabled: bool,
     },
     ResponseTime {
-        max_ms: u128,
+        max_ms: u64,
         #[serde(default = "enabled_by_default")]
         enabled: bool,
     },

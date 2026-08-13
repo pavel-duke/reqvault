@@ -1,0 +1,25 @@
+format_version: 1
+name: Создать платёж
+method: POST
+url: "{{BASE_URL}}/payments"
+headers:
+  Accept: application/json
+  Idempotency-Key: demo-request-001
+query: []
+auth:
+  type: bearer
+  token: "{{secret:DEMO_TOKEN}}"
+body:
+  type: json
+  value: |-
+    {
+      "amount": 12900,
+      "currency": "RUB",
+      "customer_id": "{{USER_ID}}"
+    }
+timeout_ms: 10000
+follow_redirects: false
+tests:
+  - type: status
+    expected: 201
+    enabled: true

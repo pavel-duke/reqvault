@@ -666,6 +666,43 @@ mod tests {
     }
 
     #[test]
+    fn migrates_workspaces_from_every_pre_1_0_release_without_data_loss() {
+        for release in [
+            "0.1", "0.2", "0.3", "0.4", "0.5", "0.6", "0.7", "0.8", "0.9",
+        ] {
+            let root = temp_root();
+            let workspace_name = format!("Compatibility {release}");
+            let request_name = format!("Health {release}");
+            fs::write(
+                root.join(CONFIG_FILE),
+                format!("id: {}\nname: {workspace_name}\n", Uuid::new_v4()),
+            )
+            .unwrap();
+            fs::write(
+                root.join("environments/local.yaml"),
+                "name: local\nvariables:\n  BASE_URL: https://api.example.test\n",
+            )
+            .unwrap();
+            fs::write(
+                root.join("requests/health.yaml"),
+                format!("name: {request_name}\nmethod: GET\nurl: '{{{{BASE_URL}}}}/health'\n"),
+            )
+            .unwrap();
+
+            let backup = apply_migration(&root).unwrap().unwrap();
+            let snapshot = crate::workspace::open(&root).unwrap();
+            assert_eq!(snapshot.config.name, workspace_name, "release {release}");
+            assert_eq!(
+                snapshot.requests[0].request.name, request_name,
+                "release {release}"
+            );
+            assert_eq!(snapshot.config.format_version, 1, "release {release}");
+            assert!(root.join(".reqvault/backups").join(backup).is_dir());
+            fs::remove_dir_all(root).unwrap();
+        }
+    }
+
+    #[test]
     fn fingerprint_changes_after_external_edit() {
         let root = temp_root();
         fs::write(

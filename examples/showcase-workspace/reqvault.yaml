@@ -1,0 +1,10 @@
+format_version: 1
+id: 6c857d3f-2ae8-4aac-bfb9-b035dc757d50
+name: Acme Platform API
+production_guard:
+  enabled: false
+  require_https: true
+  allowed_hosts: []
+  blocked_methods:
+    - DELETE
+  block_secrets_in_url: true

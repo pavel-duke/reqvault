@@ -619,4 +619,42 @@ mod tests {
         fs::remove_dir_all(target).unwrap();
         fs::remove_file(bundle).unwrap();
     }
+
+    #[test]
+    fn opens_large_workspace_with_stable_order() {
+        let path = temp_workspace();
+        create(&path, Some("Large API".to_string())).unwrap();
+        let collection = path.join("requests").join("generated");
+        fs::create_dir_all(&collection).unwrap();
+        for index in (0..1_000).rev() {
+            let request = RequestFile {
+                name: format!("Request {index:04}"),
+                url: format!("https://api.example.test/items/{index}"),
+                ..RequestFile::default()
+            };
+            write_yaml(
+                &collection.join(format!("request-{index:04}.yaml")),
+                &request,
+            )
+            .unwrap();
+        }
+
+        let snapshot = open(&path).unwrap();
+        assert_eq!(snapshot.requests.len(), 1_000);
+        assert_eq!(
+            snapshot.requests.first().unwrap().request.name,
+            "Request 0000"
+        );
+        assert_eq!(
+            snapshot.requests.last().unwrap().request.name,
+            "Request 0999"
+        );
+        assert!(
+            snapshot
+                .requests
+                .windows(2)
+                .all(|items| items[0].relative_path < items[1].relative_path)
+        );
+        fs::remove_dir_all(path).unwrap();
+    }
 }

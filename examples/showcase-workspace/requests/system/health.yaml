@@ -1,0 +1,22 @@
+format_version: 1
+name: Состояние сервисов
+method: GET
+url: "{{BASE_URL}}/health"
+headers:
+  Accept: application/json
+query: []
+auth:
+  type: none
+body:
+  type: none
+timeout_ms: 3000
+follow_redirects: false
+tests:
+  - type: status
+    expected: 200
+    enabled: true
+  - type: json_path
+    path: status
+    operator: equals
+    expected: ok
+    enabled: true

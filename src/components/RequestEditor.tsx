@@ -27,6 +27,7 @@ type Props = {
   onRefreshOAuth: () => void;
   oauthBusy: boolean;
   oauthStatus: string | null;
+  dirty: boolean;
 };
 
 const METHODS = ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"];
@@ -91,6 +92,7 @@ export function RequestEditor({
   onRefreshOAuth,
   oauthBusy,
   oauthStatus,
+  dirty,
 }: Props) {
   const [tab, setTab] = useState<EditorTab>("query");
   const headerRows = useMemo(() => recordToRows(request.headers), [request.headers]);
@@ -134,12 +136,10 @@ export function RequestEditor({
   return (
     <section className="request-editor" onKeyDown={handleKeyDown}>
       <div className="request-meta-row">
-        <input
-          className="request-name"
-          value={request.name}
-          onChange={(event) => patch({ name: event.currentTarget.value })}
-          aria-label="Название запроса"
-        />
+        <div className="request-identity">
+          <div className="request-context"><span>HTTP request</span><span className={dirty ? "draft-status dirty" : "draft-status"}>{dirty ? "Не сохранено" : "Сохранено"}</span></div>
+          <input className="request-name" value={request.name} onChange={(event) => patch({ name: event.currentTarget.value })} aria-label="Название запроса" />
+        </div>
         <label className="compact-field">
           <span>Коллекция</span>
           <input
@@ -148,12 +148,7 @@ export function RequestEditor({
             disabled={relativePath !== null}
           />
         </label>
-        <button className="secondary-button" type="button" data-shortcut="save-request" aria-keyshortcuts="Control+S Meta+S" onClick={onSave} disabled={saving || !request.name.trim()}>
-          {saving ? "Сохраняю…" : "Сохранить"}
-        </button>
-        {relativePath && (
-          <button className="danger-button" type="button" onClick={onDelete}>Удалить</button>
-        )}
+        <div className="request-meta-actions"><button className="secondary-button" type="button" data-shortcut="save-request" aria-keyshortcuts="Control+S Meta+S" onClick={onSave} disabled={saving || !request.name.trim()}>{saving ? "Сохраняю…" : "Сохранить"}</button>{relativePath && <button className="danger-button" type="button" onClick={onDelete}>Удалить</button>}</div>
       </div>
 
       <div className="request-line">
@@ -172,8 +167,8 @@ export function RequestEditor({
           placeholder="https://api.example.ru/v1/users"
           aria-label="URL запроса"
         />
-        <button className="send-button" type="button" onClick={onSend} disabled={sending || !request.url.trim()} title="Ctrl+Enter">
-          {sending ? "Отправляю…" : "Отправить"}
+        <button className="send-button" type="button" aria-keyshortcuts="Control+Enter Meta+Enter" onClick={onSend} disabled={sending || !request.url.trim()} title="Ctrl+Enter">
+          <span>{sending ? "Отправляю…" : "Отправить"}</span><kbd>Ctrl ↵</kbd>
         </button>
       </div>
 
@@ -188,7 +183,7 @@ export function RequestEditor({
         <button role="tab" aria-selected={tab === "transport"} className={tab === "transport" ? "active" : ""} type="button" onClick={() => setTab("transport")}>Сеть</button>
       </div>
 
-      <div className="tab-content">
+      <div className="tab-content" role="tabpanel">
         {tab === "query" && (
           <KeyValueEditor rows={request.query} onChange={(query) => patch({ query })} emptyText="Параметров запроса пока нет" />
         )}

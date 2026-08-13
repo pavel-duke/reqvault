@@ -1,6 +1,6 @@
 [package]
 name = "reqvault"
-version = "0.9.0"
+version = "1.0.0"
 description = "Локальный REST API-клиент с безопасным хранением секретов"
 authors = ["Pavel"]
 edition = "2024"

@@ -221,7 +221,7 @@ fn evaluate_one(response: &HttpResponse, assertion: &ResponseAssertion) -> Asser
             truncate(&response.body, 160),
         ),
         ResponseAssertion::ResponseTime { max_ms, .. } => assertion_result(
-            response.duration_ms <= *max_ms,
+            response.duration_ms <= u128::from(*max_ms),
             "Время ответа".to_string(),
             format!("≤ {max_ms} мс"),
             format!("{} мс", response.duration_ms),

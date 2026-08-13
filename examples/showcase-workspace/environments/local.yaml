@@ -1,0 +1,5 @@
+format_version: 1
+name: Local development
+variables:
+  BASE_URL: http://127.0.0.1:4318/v1
+  USER_ID: usr_1042

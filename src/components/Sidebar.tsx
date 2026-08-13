@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 import type { EnvironmentSummary, RequestSummary, WorkspaceSnapshot } from "../types";
+import { Icon } from "./Icon";
 
 type Props = {
   workspace: WorkspaceSnapshot;
@@ -10,15 +11,6 @@ type Props = {
   onEnvironmentChange: (path: string) => void;
   onEditEnvironments: () => void;
   onEditSecrets: () => void;
-  onImport: () => void;
-  onImportCurl: () => void;
-  onExport: () => void;
-  onSettings: () => void;
-  onHistory: () => void;
-  onCookies: () => void;
-  onDiagnostics: () => void;
-  onRun: () => void;
-  onStream: () => void;
   onClose: () => void;
 };
 
@@ -45,15 +37,6 @@ export function Sidebar({
   onEnvironmentChange,
   onEditEnvironments,
   onEditSecrets,
-  onImport,
-  onImportCurl,
-  onExport,
-  onSettings,
-  onHistory,
-  onCookies,
-  onDiagnostics,
-  onRun,
-  onStream,
   onClose,
 }: Props) {
   const [search, setSearch] = useState("");
@@ -77,10 +60,10 @@ export function Sidebar({
     <aside className="sidebar">
       <div className="workspace-heading">
         <div>
-          <span className="eyebrow">Workspace</span>
+          <span className="eyebrow">Проект</span>
           <strong title={workspace.root_path}>{workspace.config.name}</strong>
         </div>
-        <button className="quiet-icon" type="button" onClick={onClose} title="Закрыть workspace" aria-label="Закрыть workspace">×</button>
+        <button className="quiet-icon" type="button" onClick={onClose} title="Закрыть workspace" aria-label="Закрыть workspace"><Icon name="x" /></button>
       </div>
 
       <div className="environment-select">
@@ -97,31 +80,17 @@ export function Sidebar({
               </option>
             ))}
           </select>
-          <button className="quiet-icon" type="button" onClick={onEditEnvironments} title="Изменить окружения" aria-label="Изменить окружения">•••</button>
+          <button className="quiet-icon" type="button" onClick={onEditEnvironments} title="Изменить окружения" aria-label="Изменить окружения"><Icon name="settings" /></button>
         </div>
       </div>
 
       <button className="vault-button" type="button" onClick={onEditSecrets}>
-        <span aria-hidden="true">▣</span>
-        <span><strong>Секреты</strong><small>Системное хранилище ОС</small></span>
+        <span aria-hidden="true"><Icon name="key" /></span>
+        <span><strong>Secret Vault</strong><small>Защищено операционной системой</small></span>
       </button>
 
-      <div className="sidebar-tools">
-        <button className="secondary-button" type="button" onClick={onImport}>Файл</button>
-        <button className="secondary-button" type="button" onClick={onImportCurl}>cURL</button>
-        <button className="secondary-button" type="button" onClick={onExport}>Экспорт</button>
-        <button className="secondary-button" type="button" onClick={onHistory}>История</button>
-        <button className="secondary-button" type="button" onClick={onCookies}>Cookie</button>
-        <button className="secondary-button" type="button" onClick={onDiagnostics}>Диагностика</button>
-        <button className="secondary-button" type="button" onClick={onRun}>Запуск</button>
-        <button className="secondary-button" type="button" onClick={onStream}>Потоки</button>
-        <button className="secondary-button guard-button" type="button" onClick={onSettings}>
-          Защита{workspace.config.production_guard.enabled ? " •" : ""}
-        </button>
-      </div>
-
       <div className="sidebar-section-heading">
-        <span>Запросы</span>
+        <span>Коллекции <b>{workspace.requests.length}</b></span>
         <button className="quiet-icon" type="button" data-shortcut="new-request" aria-keyshortcuts="Alt+N" onClick={onNewRequest} title="Новый запрос (Alt+N)" aria-label="Новый запрос">+</button>
       </div>
 

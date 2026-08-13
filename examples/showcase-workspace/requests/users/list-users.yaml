@@ -1,0 +1,36 @@
+format_version: 1
+name: Список пользователей
+method: GET
+url: "{{BASE_URL}}/users"
+headers:
+  Accept: application/json
+query:
+  - name: limit
+    value: "25"
+    enabled: true
+  - name: status
+    value: active
+    enabled: false
+auth:
+  type: none
+body:
+  type: none
+timeout_ms: 5000
+follow_redirects: true
+tests:
+  - type: status
+    expected: 200
+    enabled: true
+  - type: header
+    name: Content-Type
+    operator: contains
+    expected: application/json
+    enabled: true
+  - type: json_path
+    path: meta.total
+    operator: exists
+    expected: ""
+    enabled: true
+  - type: response_time
+    max_ms: 1000
+    enabled: true
