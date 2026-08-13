@@ -449,7 +449,15 @@ fn parse_curl(command: &str) -> Result<(RequestFile, Vec<String>), String> {
             fields: form_fields,
         }
     } else if let Some(value) = data {
-        if content_type.to_lowercase().contains("application/json")
+        if content_type.to_lowercase().contains("application/graphql") {
+            BodyConfig::Graphql {
+                query: value,
+                variables: "{}".to_string(),
+                operation_name: String::new(),
+            }
+        } else if let Some(graphql) = graphql_body_from_json(&value) {
+            graphql
+        } else if content_type.to_lowercase().contains("application/json")
             || serde_json::from_str::<Value>(&value).is_ok()
         {
             BodyConfig::Json { value }
@@ -464,6 +472,27 @@ fn parse_curl(command: &str) -> Result<(RequestFile, Vec<String>), String> {
     };
 
     Ok((request, warnings))
+}
+
+fn graphql_body_from_json(raw: &str) -> Option<BodyConfig> {
+    let value = serde_json::from_str::<Value>(raw).ok()?;
+    let query = value.get("query")?.as_str()?.to_string();
+    let variables = value
+        .get("variables")
+        .cloned()
+        .unwrap_or_else(|| serde_json::json!({}));
+    if !variables.is_object() {
+        return None;
+    }
+    Some(BodyConfig::Graphql {
+        query,
+        variables: serde_json::to_string_pretty(&variables).ok()?,
+        operation_name: value
+            .get("operationName")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_string(),
+    })
 }
 
 fn import_curl_header(
@@ -1339,6 +1368,16 @@ paths:
         assert!(yaml.contains("{{secret:CURL_BEARER_TOKEN}}"));
         assert!(!yaml.contains(TEST_SECRET));
         assert!(!warnings.is_empty());
+    }
+
+    #[test]
+    fn recognizes_graphql_curl_payload() {
+        let command = r#"curl https://api.example.test/graphql -H 'Content-Type: application/json' --data-raw '{"query":"query Viewer { viewer { id } }","variables":{},"operationName":"Viewer"}'"#;
+        let (request, _) = parse_curl(command).unwrap();
+        assert!(matches!(
+            request.body,
+            BodyConfig::Graphql { operation_name, .. } if operation_name == "Viewer"
+        ));
     }
 
     #[test]

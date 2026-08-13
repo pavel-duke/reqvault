@@ -118,6 +118,13 @@ pub enum BodyConfig {
     Json {
         value: String,
     },
+    Graphql {
+        query: String,
+        #[serde(default = "default_graphql_variables")]
+        variables: String,
+        #[serde(default)]
+        operation_name: String,
+    },
     Raw {
         value: String,
         #[serde(default)]
@@ -131,6 +138,10 @@ pub enum BodyConfig {
         #[serde(default)]
         fields: Vec<MultipartField>,
     },
+}
+
+fn default_graphql_variables() -> String {
+    "{}".to_string()
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]

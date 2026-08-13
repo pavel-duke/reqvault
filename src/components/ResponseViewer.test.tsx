@@ -41,4 +41,10 @@ describe("ResponseViewer", () => {
     expect(screen.getByText("Проверь адрес сервера и подключение к сети.")).toBeInTheDocument();
     expect(screen.queryByText("connection refused")).not.toBeVisible();
   });
+
+  it("отдельно показывает GraphQL errors", () => {
+    render(<ResponseViewer response={{ ...response, body: '{"data":{"user":null},"errors":[{"message":"User not found","path":["user"]}]}' }} error={null} loading={false} />);
+    expect(screen.getByText("GraphQL вернул errors")).toBeInTheDocument();
+    expect(screen.getByText("User not found (user)")).toBeInTheDocument();
+  });
 });

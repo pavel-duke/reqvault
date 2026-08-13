@@ -55,6 +55,7 @@ function authForType(type: AuthConfig["type"]): AuthConfig {
 function bodyForType(type: BodyConfig["type"]): BodyConfig {
   switch (type) {
     case "json": return { type, value: "{\n  \"key\": \"value\"\n}" };
+    case "graphql": return { type, query: "query GetUser($id: ID!) {\n  user(id: $id) {\n    id\n    name\n  }\n}", variables: "{\n  \"id\": \"42\"\n}", operation_name: "GetUser" };
     case "raw": return { type, value: "", content_type: "text/plain" };
     case "form_urlencoded": return { type, fields: [] };
     case "multipart": return { type, fields: [] };
@@ -237,15 +238,21 @@ export function RequestEditor({
           <div className="body-editor">
             <label className="field body-type">
               <span>Тип тела</span>
-              <select value={request.body.type} onChange={(event) => patch({ body: bodyForType(event.currentTarget.value as BodyConfig["type"]) })}>
+              <select value={request.body.type} onChange={(event) => { const type = event.currentTarget.value as BodyConfig["type"]; patch({ body: bodyForType(type), ...(type === "graphql" && request.method === "GET" ? { method: "POST" } : {}) }); }}>
                 <option value="none">Нет</option>
                 <option value="json">JSON</option>
+                <option value="graphql">GraphQL</option>
                 <option value="raw">Raw text</option>
                 <option value="form_urlencoded">Form URL-encoded</option>
                 <option value="multipart">Multipart form-data</option>
               </select>
             </label>
             {request.body.type === "json" && <textarea className="code-input" value={request.body.value} onChange={(event) => patch({ body: { type: "json", value: event.currentTarget.value } })} spellCheck={false} aria-label="JSON-тело" />}
+            {request.body.type === "graphql" && <div className="graphql-editor">
+              <label className="field"><span>Operation name</span><input value={request.body.operation_name} onChange={(event) => request.body.type === "graphql" && patch({ body: { ...request.body, operation_name: event.currentTarget.value } })} placeholder="GetUser" /></label>
+              <label className="field"><span>Query</span><textarea className="code-input graphql-query" value={request.body.query} onChange={(event) => request.body.type === "graphql" && patch({ body: { ...request.body, query: event.currentTarget.value } })} spellCheck={false} /></label>
+              <label className="field"><span>Variables (JSON)</span><textarea className="code-input graphql-variables" value={request.body.variables} onChange={(event) => request.body.type === "graphql" && patch({ body: { ...request.body, variables: event.currentTarget.value } })} spellCheck={false} /></label>
+            </div>}
             {request.body.type === "raw" && (
               <>
                 <label className="field compact-content-type"><span>Content-Type</span><input value={request.body.content_type} onChange={(event) => request.body.type === "raw" && patch({ body: { type: "raw", value: request.body.value, content_type: event.currentTarget.value } })} /></label>

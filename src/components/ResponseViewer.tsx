@@ -24,9 +24,27 @@ function prettyBody(response: HttpResponse): string {
   }
 }
 
+function graphqlErrors(response: HttpResponse | null): string[] {
+  if (!response?.is_json) return [];
+  try {
+    const value = JSON.parse(response.body) as { errors?: unknown };
+    if (!Array.isArray(value.errors)) return [];
+    return value.errors.map((item) => {
+      if (!item || typeof item !== "object") return String(item);
+      const error = item as { message?: unknown; path?: unknown };
+      const message = typeof error.message === "string" ? error.message : "GraphQL error";
+      const path = Array.isArray(error.path) ? ` (${error.path.join(".")})` : "";
+      return `${message}${path}`;
+    });
+  } catch {
+    return [];
+  }
+}
+
 export function ResponseViewer({ response, error, loading }: Props) {
   const [tab, setTab] = useState<ResponseTab>("body");
   const body = useMemo(() => (response ? prettyBody(response) : ""), [response]);
+  const graphQLErrors = useMemo(() => graphqlErrors(response), [response]);
 
   return (
     <section className="response-viewer" aria-live="polite">
@@ -51,6 +69,7 @@ export function ResponseViewer({ response, error, loading }: Props) {
         </div>
       ) : response ? (
         <>
+          {graphQLErrors.length > 0 && <div className="graphql-errors" role="alert"><strong>GraphQL вернул errors</strong><ul>{graphQLErrors.map((message, index) => <li key={index}>{message}</li>)}</ul></div>}
           <div className="editor-tabs response-tabs" role="tablist" aria-label="Данные ответа">
             <button className={tab === "body" ? "active" : ""} type="button" onClick={() => setTab("body")}>Ответ</button>
             <button className={tab === "headers" ? "active" : ""} type="button" onClick={() => setTab("headers")}>Заголовки <span>{response.headers.length}</span></button>

@@ -41,6 +41,7 @@ export type AuthConfig =
 export type BodyConfig =
   | { type: "none" }
   | { type: "json"; value: string }
+  | { type: "graphql"; query: string; variables: string; operation_name: string }
   | { type: "raw"; value: string; content_type: string }
   | { type: "form_urlencoded"; fields: KeyValue[] }
   | { type: "multipart"; fields: MultipartField[] };

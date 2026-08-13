@@ -159,6 +159,31 @@ where
                 .map_err(|error| PrepareError::InvalidJson(error.to_string()))?;
             BodyConfig::Json { value }
         }
+        BodyConfig::Graphql {
+            query,
+            variables,
+            operation_name,
+        } => {
+            let query = resolve(query)?;
+            if query.trim().is_empty() {
+                return Err(PrepareError::InvalidGraphql(
+                    "query не может быть пустым".to_string(),
+                ));
+            }
+            let variables = resolve(variables)?;
+            let parsed = serde_json::from_str::<serde_json::Value>(&variables)
+                .map_err(|error| PrepareError::InvalidGraphql(error.to_string()))?;
+            if !parsed.is_object() {
+                return Err(PrepareError::InvalidGraphql(
+                    "variables должны быть JSON-объектом".to_string(),
+                ));
+            }
+            BodyConfig::Graphql {
+                query,
+                variables,
+                operation_name: resolve(operation_name)?,
+            }
+        }
         BodyConfig::Raw {
             value,
             content_type,
@@ -371,6 +396,28 @@ async fn execute(prepared: PreparedRequest) -> Result<HttpResponse, HttpError> {
         BodyConfig::Json { value } => builder
             .header(CONTENT_TYPE, "application/json")
             .body(value.clone()),
+        BodyConfig::Graphql {
+            query,
+            variables,
+            operation_name,
+        } => {
+            let variables = serde_json::from_str::<serde_json::Value>(variables)
+                .unwrap_or_else(|_| serde_json::json!({}));
+            let mut payload = serde_json::Map::from_iter([
+                (
+                    "query".to_string(),
+                    serde_json::Value::String(query.clone()),
+                ),
+                ("variables".to_string(), variables),
+            ]);
+            if !operation_name.trim().is_empty() {
+                payload.insert(
+                    "operationName".to_string(),
+                    serde_json::Value::String(operation_name.clone()),
+                );
+            }
+            builder.json(&serde_json::Value::Object(payload))
+        }
         BodyConfig::Raw {
             value,
             content_type,
@@ -499,6 +546,8 @@ enum PrepareError {
     InvalidHeaderValue(String),
     #[error("Тело запроса содержит неправильный JSON: {0}")]
     InvalidJson(String),
+    #[error("Некорректный GraphQL body: {0}")]
+    InvalidGraphql(String),
     #[error("Не удалось прочитать {0}: {1}")]
     ReadTlsFile(&'static str, String),
     #[error("Для mTLS нужно выбрать и сертификат, и приватный ключ")]
@@ -608,6 +657,28 @@ mod tests {
                 .contains("content-type: application/json")
         );
         assert!(raw.ends_with("{\"name\":\"Ada\"}"));
+    }
+
+    #[tokio::test]
+    async fn sends_graphql_query_variables_and_operation_name() {
+        let response = "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 19\r\n\r\n{\"data\":{\"user\":1}}";
+        let (url, received) = server(response, None).await.unwrap();
+        let request = RequestFile {
+            method: "POST".to_string(),
+            url,
+            body: BodyConfig::Graphql {
+                query: "query GetUser($id: ID!) { user(id: $id) { id } }".to_string(),
+                variables: "{\"id\":\"42\"}".to_string(),
+                operation_name: "GetUser".to_string(),
+            },
+            ..RequestFile::default()
+        };
+        let result = send(&request, None, &mut unavailable_secret).await.unwrap();
+        let raw = received.await.unwrap();
+        assert_eq!(result.status, 200);
+        assert!(raw.contains("\"operationName\":\"GetUser\""));
+        assert!(raw.contains("\"variables\":{\"id\":\"42\"}"));
+        assert!(raw.contains("query GetUser"));
     }
 
     #[tokio::test]

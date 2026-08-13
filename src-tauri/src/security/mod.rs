@@ -209,6 +209,38 @@ pub fn curl(
             }
             parts.push(format!("  --data-raw {}", shell_quote(&safe(value)?)));
         }
+        BodyConfig::Graphql {
+            query,
+            variables,
+            operation_name,
+        } => {
+            if !request
+                .headers
+                .keys()
+                .any(|name| name.eq_ignore_ascii_case("content-type"))
+            {
+                parts.push(format!(
+                    "  -H {}",
+                    shell_quote("Content-Type: application/json")
+                ));
+            }
+            let variables = safe(variables)?;
+            let variables = serde_json::from_str::<serde_json::Value>(&variables)
+                .unwrap_or_else(|_| serde_json::json!({}));
+            let mut payload = serde_json::Map::from_iter([
+                ("query".to_string(), serde_json::Value::String(safe(query)?)),
+                ("variables".to_string(), variables),
+            ]);
+            if !operation_name.trim().is_empty() {
+                payload.insert(
+                    "operationName".to_string(),
+                    serde_json::Value::String(safe(operation_name)?),
+                );
+            }
+            let body = serde_json::to_string(&serde_json::Value::Object(payload))
+                .map_err(|_| "Не удалось подготовить GraphQL cURL".to_string())?;
+            parts.push(format!("  --data-raw {}", shell_quote(&body)));
+        }
         BodyConfig::Raw {
             value,
             content_type,
@@ -319,6 +351,11 @@ fn body_strings(body: &BodyConfig) -> Vec<&str> {
     match body {
         BodyConfig::None => Vec::new(),
         BodyConfig::Json { value } => vec![value],
+        BodyConfig::Graphql {
+            query,
+            variables,
+            operation_name,
+        } => vec![query, variables, operation_name],
         BodyConfig::Raw {
             value,
             content_type,
@@ -428,5 +465,23 @@ mod tests {
         };
 
         assert!(curl(&request, None).is_err());
+    }
+
+    #[test]
+    fn graphql_curl_keeps_payload_and_redacts_secret_references() {
+        let request = RequestFile {
+            method: "POST".to_string(),
+            url: "https://api.example.test/graphql".to_string(),
+            body: BodyConfig::Graphql {
+                query: "query User { user { id } }".to_string(),
+                variables: "{\"token\":\"{{secret:GRAPHQL_TOKEN}}\"}".to_string(),
+                operation_name: "User".to_string(),
+            },
+            ..RequestFile::default()
+        };
+        let output = curl(&request, None).unwrap();
+        assert!(output.contains("operationName"));
+        assert!(output.contains("***REDACTED***"));
+        assert!(!output.contains("GRAPHQL_TOKEN"));
     }
 }
