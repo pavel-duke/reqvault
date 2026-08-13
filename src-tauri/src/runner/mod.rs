@@ -10,6 +10,7 @@ use crate::{
     },
     oauth,
     secrets::{self, KeyringBackend},
+    session::CookieJar,
     variables::ResolveError,
     workspace,
 };
@@ -27,6 +28,7 @@ pub async fn run_workspace(
         .as_millis();
     let started = Instant::now();
     let mut results = Vec::new();
+    let cookie_jar = CookieJar::default();
 
     for summary in snapshot.requests.iter().filter(|summary| {
         options.collection.as_deref().is_none_or(|collection| {
@@ -39,6 +41,7 @@ pub async fn run_workspace(
             environment,
             &snapshot.config.production_guard,
             &backend,
+            &cookie_jar,
         )
         .await;
         let failed = !result.passed;
@@ -68,17 +71,23 @@ async fn run_request(
     environment: Option<&EnvironmentFile>,
     production_guard: &crate::models::ProductionGuard,
     backend: &KeyringBackend,
+    cookie_jar: &CookieJar,
 ) -> RequestRunResult {
     if let Err(error) = guard::validate(request, environment, production_guard) {
         return failed_result(relative_path, request, error);
     }
     let send = || async {
-        http::send(request, environment, &mut |name| {
-            secrets::get(backend, name).map_err(|error| match error {
-                secrets::SecretError::NotFound(name) => ResolveError::MissingSecret(name),
-                _ => ResolveError::SecretStorage,
-            })
-        })
+        http::send_with_session(
+            request,
+            environment,
+            &mut |name| {
+                secrets::get(backend, name).map_err(|error| match error {
+                    secrets::SecretError::NotFound(name) => ResolveError::MissingSecret(name),
+                    _ => ResolveError::SecretStorage,
+                })
+            },
+            Some(cookie_jar),
+        )
         .await
     };
     let mut response = match send().await {

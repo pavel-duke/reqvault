@@ -87,6 +87,10 @@ pub enum AuthConfig {
         username: String,
         password: String,
     },
+    Digest {
+        username: String,
+        password: String,
+    },
     ApiKeyHeader {
         name: String,
         value: String,
@@ -107,6 +111,14 @@ pub enum AuthConfig {
         access_token: String,
         #[serde(default)]
         refresh_token: String,
+    },
+    AwsSigV4 {
+        access_key: String,
+        secret_key: String,
+        #[serde(default)]
+        session_token: String,
+        region: String,
+        service: String,
     },
 }
 

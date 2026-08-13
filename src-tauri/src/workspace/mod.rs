@@ -279,6 +279,7 @@ fn validate_credentials(request: &RequestFile) -> Result<(), WorkspaceError> {
         AuthConfig::None => {}
         AuthConfig::Bearer { token } => require_reference(token, "Bearer token")?,
         AuthConfig::Basic { password, .. } => require_reference(password, "пароль Basic Auth")?,
+        AuthConfig::Digest { password, .. } => require_reference(password, "пароль Digest Auth")?,
         AuthConfig::ApiKeyHeader { value, .. } | AuthConfig::ApiKeyQuery { value, .. } => {
             require_reference(value, "API key")?
         }
@@ -291,6 +292,16 @@ fn validate_credentials(request: &RequestFile) -> Result<(), WorkspaceError> {
             require_reference(client_secret, "OAuth client secret")?;
             require_reference(access_token, "OAuth access token")?;
             require_reference(refresh_token, "OAuth refresh token")?;
+        }
+        AuthConfig::AwsSigV4 {
+            access_key,
+            secret_key,
+            session_token,
+            ..
+        } => {
+            require_reference(access_key, "AWS access key")?;
+            require_reference(secret_key, "AWS secret key")?;
+            require_reference(session_token, "AWS session token")?;
         }
     }
     if let ProxyConfig::Custom { password, .. } = &request.transport.proxy {

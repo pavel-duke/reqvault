@@ -1,12 +1,13 @@
 use std::path::Path;
 
-use tauri::Manager;
+use tauri::{Manager, State};
 
 use crate::{
     guard, history, http,
     models::{AuthConfig, EnvironmentFile, HttpError, HttpResponse, RequestFile},
     oauth,
     secrets::{self, KeyringBackend},
+    session::SessionState,
     variables::ResolveError,
     workspace,
 };
@@ -18,6 +19,7 @@ pub async fn send_request(
     environment: Option<EnvironmentFile>,
     workspace_id: String,
     workspace_path: String,
+    sessions: State<'_, SessionState>,
 ) -> Result<HttpResponse, HttpError> {
     let backend = KeyringBackend::new(&workspace_id).map_err(|error| HttpError {
         message: error.to_string(),
@@ -37,12 +39,22 @@ pub async fn send_request(
         },
     )?;
 
-    let mut response = http::send(&request, environment.as_ref(), &mut |name| {
-        secrets::get(&backend, name).map_err(|error| match error {
-            secrets::SecretError::NotFound(name) => ResolveError::MissingSecret(name),
-            _ => ResolveError::SecretStorage,
-        })
-    })
+    let cookie_jar = sessions.jar(&workspace_id).map_err(|message| HttpError {
+        message,
+        details: None,
+        error_type: "session".to_string(),
+    })?;
+    let mut response = http::send_with_session(
+        &request,
+        environment.as_ref(),
+        &mut |name| {
+            secrets::get(&backend, name).map_err(|error| match error {
+                secrets::SecretError::NotFound(name) => ResolveError::MissingSecret(name),
+                _ => ResolveError::SecretStorage,
+            })
+        },
+        Some(&cookie_jar),
+    )
     .await?;
     if response.status == 401
         && matches!(&request.auth, AuthConfig::OAuth2 { .. })
@@ -50,12 +62,17 @@ pub async fn send_request(
             .await
             .is_ok()
     {
-        response = http::send(&request, environment.as_ref(), &mut |name| {
-            secrets::get(&backend, name).map_err(|error| match error {
-                secrets::SecretError::NotFound(name) => ResolveError::MissingSecret(name),
-                _ => ResolveError::SecretStorage,
-            })
-        })
+        response = http::send_with_session(
+            &request,
+            environment.as_ref(),
+            &mut |name| {
+                secrets::get(&backend, name).map_err(|error| match error {
+                    secrets::SecretError::NotFound(name) => ResolveError::MissingSecret(name),
+                    _ => ResolveError::SecretStorage,
+                })
+            },
+            Some(&cookie_jar),
+        )
         .await?;
     }
     if let Ok(root) = app.path().app_local_data_dir() {

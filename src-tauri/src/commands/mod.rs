@@ -5,5 +5,6 @@ pub(crate) mod oauth;
 pub(crate) mod runner;
 pub(crate) mod secrets;
 pub(crate) mod security;
+pub(crate) mod session;
 pub(crate) mod stream;
 pub(crate) mod workspace;

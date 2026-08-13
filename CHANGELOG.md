@@ -2,6 +2,23 @@
 
 Формат основан на [Keep a Changelog](https://keepachangelog.com/ru/1.1.0/), версия проекта следует [Semantic Versioning](https://semver.org/lang/ru/).
 
+## [0.7.0] — 2026-08-13
+
+### Добавлено
+
+- изолированный cookie jar для каждого workspace;
+- автоматическая обработка `Set-Cookie` с проверкой домена, пути, срока и флага Secure;
+- окно просмотра, поиска и удаления cookie без показа их значений;
+- Digest Auth с MD5, SHA-256, sess-вариантами и `qop=auth`;
+- AWS Signature V4 с временными credentials и подписью query/body;
+- общая cookie-сессия для последовательного collection run.
+
+### Безопасность
+
+- cookie хранятся только в памяти и уничтожаются при закрытии workspace;
+- пароли Digest и ключи AWS принимаются только как ссылки на Secret Vault;
+- значения cookie не передаются в интерфейс и не записываются в YAML, историю или Git.
+
 ## [0.6.0] — 2026-08-13
 
 ### Добавлено
@@ -101,3 +118,4 @@
 [0.4.0]: https://github.com/pavel-duke/reqvault/releases/tag/v0.4.0
 [0.5.0]: https://github.com/pavel-duke/reqvault/releases/tag/v0.5.0
 [0.6.0]: https://github.com/pavel-duke/reqvault/releases/tag/v0.6.0
+[0.7.0]: https://github.com/pavel-duke/reqvault/releases/tag/v0.7.0

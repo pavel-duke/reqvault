@@ -4,7 +4,10 @@ import { writeText } from "@tauri-apps/plugin-clipboard-manager";
 import {
   createWorkspace,
   authorizeOAuth,
+  clearCookies,
   clearHistory,
+  closeWorkspaceSession,
+  deleteCookie,
   getHistoryEntry,
   getHistorySettings,
   errorMessage,
@@ -15,6 +18,7 @@ import {
   importWorkspace,
   inspectRequest,
   listHistory,
+  listCookies,
   listSecrets,
   openWorkspace,
   removeEnvironment,
@@ -33,6 +37,7 @@ import {
 import { EnvironmentDialog } from "./components/EnvironmentDialog";
 import { CurlImportDialog } from "./components/CurlImportDialog";
 import { CollectionRunnerDialog } from "./components/CollectionRunnerDialog";
+import { CookieDialog } from "./components/CookieDialog";
 import { HistoryDialog } from "./components/HistoryDialog";
 import { RequestEditor } from "./components/RequestEditor";
 import { ResponseViewer } from "./components/ResponseViewer";
@@ -42,7 +47,7 @@ import { StartScreen } from "./components/StartScreen";
 import { WorkspaceSettingsDialog } from "./components/WorkspaceSettingsDialog";
 import { StreamDialog } from "./components/StreamDialog";
 import { collectionFromPath, emptyRequest } from "./request-utils";
-import type { CollectionRunOptions, CollectionRunReport, EnvironmentFile, HistorySettings, HistorySummary, HttpError, HttpResponse, RequestFile, RequestSummary, SecurityReport, Theme, WorkspaceConfig, WorkspaceSnapshot } from "./types";
+import type { CollectionRunOptions, CollectionRunReport, CookieSummary, EnvironmentFile, HistorySettings, HistorySummary, HttpError, HttpResponse, RequestFile, RequestSummary, SecurityReport, Theme, WorkspaceConfig, WorkspaceSnapshot } from "./types";
 import "./App.css";
 
 const LAST_WORKSPACE_KEY = "reqvault.last-workspace";
@@ -90,6 +95,10 @@ function App() {
   const [historyEntries, setHistoryEntries] = useState<HistorySummary[]>([]);
   const [historyBusy, setHistoryBusy] = useState(false);
   const [historyError, setHistoryError] = useState<string | null>(null);
+  const [cookiesOpen, setCookiesOpen] = useState(false);
+  const [cookies, setCookies] = useState<CookieSummary[]>([]);
+  const [cookiesBusy, setCookiesBusy] = useState(false);
+  const [cookiesError, setCookiesError] = useState<string | null>(null);
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
@@ -477,7 +486,50 @@ function App() {
     }
   }
 
+  async function openCookies() {
+    if (!workspace) return;
+    setCookiesOpen(true);
+    setCookiesBusy(true);
+    setCookiesError(null);
+    try {
+      setCookies(await listCookies(workspace.config.id));
+    } catch (caught) {
+      setCookiesError(errorMessage(caught));
+    } finally {
+      setCookiesBusy(false);
+    }
+  }
+
+  async function deleteSessionCookie(id: string) {
+    if (!workspace) return;
+    setCookiesBusy(true);
+    setCookiesError(null);
+    try {
+      await deleteCookie(workspace.config.id, id);
+      setCookies(await listCookies(workspace.config.id));
+    } catch (caught) {
+      setCookiesError(errorMessage(caught));
+    } finally {
+      setCookiesBusy(false);
+    }
+  }
+
+  async function clearSessionCookies() {
+    if (!workspace || !window.confirm("Очистить все cookie текущего workspace? Активные сессии на API могут завершиться.")) return;
+    setCookiesBusy(true);
+    setCookiesError(null);
+    try {
+      await clearCookies(workspace.config.id);
+      setCookies([]);
+    } catch (caught) {
+      setCookiesError(errorMessage(caught));
+    } finally {
+      setCookiesBusy(false);
+    }
+  }
+
   function closeWorkspace() {
+    if (workspace) void closeWorkspaceSession(workspace.config.id);
     window.localStorage.removeItem(LAST_WORKSPACE_KEY);
     setWorkspace(null);
     setDraft(null);
@@ -510,6 +562,7 @@ function App() {
             onExport={() => void exportCurrentWorkspace()}
             onSettings={() => { setSettingsError(null); setSettingsOpen(true); }}
             onHistory={() => void openHistory()}
+            onCookies={() => void openCookies()}
             onRun={() => { setRunnerError(null); setRunnerReport(null); setRunnerOpen(true); }}
             onStream={() => setStreamOpen(true)}
             onClose={closeWorkspace}
@@ -538,6 +591,10 @@ function App() {
 
       {workspace && historyOpen && (
         <HistoryDialog settings={historySettings} entries={historyEntries} busy={historyBusy} error={historyError} onSettingsChange={persistHistorySettings} onLoad={(id) => getHistoryEntry(workspace.config.id, id)} onDelete={deleteHistory} onClear={clearSavedHistory} onClose={() => setHistoryOpen(false)} />
+      )}
+
+      {workspace && cookiesOpen && (
+        <CookieDialog cookies={cookies} busy={cookiesBusy} error={cookiesError} onDelete={deleteSessionCookie} onClear={clearSessionCookies} onClose={() => setCookiesOpen(false)} />
       )}
 
       {workspace && curlOpen && (

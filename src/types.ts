@@ -24,8 +24,17 @@ export type AuthConfig =
   | { type: "none" }
   | { type: "bearer"; token: string }
   | { type: "basic"; username: string; password: string }
+  | { type: "digest"; username: string; password: string }
   | { type: "api_key_header"; name: string; value: string }
   | { type: "api_key_query"; name: string; value: string }
+  | {
+      type: "aws_sig_v4";
+      access_key: string;
+      secret_key: string;
+      session_token: string;
+      region: string;
+      service: string;
+    }
   | {
       type: "oauth2";
       grant_type: "authorization_code_pkce" | "client_credentials";
@@ -165,6 +174,16 @@ export type HistoryEntry = {
   headers: ResponseHeader[];
   body: string;
   is_json: boolean;
+};
+
+export type CookieSummary = {
+  id: string;
+  name: string;
+  domain: string;
+  path: string;
+  secure: boolean;
+  http_only: boolean;
+  expires_at: number | null;
 };
 
 export type SecurityReport = {

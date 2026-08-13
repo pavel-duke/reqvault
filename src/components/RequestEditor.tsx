@@ -35,8 +35,17 @@ function authForType(type: AuthConfig["type"]): AuthConfig {
   switch (type) {
     case "bearer": return { type, token: "{{secret:API_TOKEN}}" };
     case "basic": return { type, username: "", password: "{{secret:PASSWORD}}" };
+    case "digest": return { type, username: "", password: "{{secret:DIGEST_PASSWORD}}" };
     case "api_key_header": return { type, name: "X-API-Key", value: "{{secret:API_KEY}}" };
     case "api_key_query": return { type, name: "api_key", value: "{{secret:API_KEY}}" };
+    case "aws_sig_v4": return {
+      type,
+      access_key: "{{secret:AWS_ACCESS_KEY}}",
+      secret_key: "{{secret:AWS_SECRET_KEY}}",
+      session_token: "",
+      region: "us-east-1",
+      service: "execute-api",
+    };
     case "oauth2": return {
       type,
       grant_type: "authorization_code_pkce",
@@ -194,9 +203,11 @@ export function RequestEditor({
                 <option value="none">Нет</option>
                 <option value="bearer">Bearer Token</option>
                 <option value="basic">Basic Auth</option>
+                <option value="digest">Digest Auth</option>
                 <option value="api_key_header">API Key в заголовке</option>
                 <option value="api_key_query">API Key в query</option>
                 <option value="oauth2">OAuth 2.0</option>
+                <option value="aws_sig_v4">AWS Signature V4</option>
               </select>
             </label>
             {request.auth.type === "bearer" && (
@@ -206,6 +217,13 @@ export function RequestEditor({
               <>
                 <label className="field"><span>Имя пользователя</span><input value={request.auth.username} onChange={(event) => request.auth.type === "basic" && patch({ auth: { type: "basic", username: event.currentTarget.value, password: request.auth.password } })} /></label>
                 <label className="field"><span>Пароль</span><input value={request.auth.password} onChange={(event) => request.auth.type === "basic" && patch({ auth: { type: "basic", username: request.auth.username, password: event.currentTarget.value } })} placeholder="{{secret:PASSWORD}}" /></label>
+              </>
+            )}
+            {request.auth.type === "digest" && (
+              <>
+                <label className="field"><span>Имя пользователя</span><input value={request.auth.username} onChange={(event) => request.auth.type === "digest" && patch({ auth: { type: "digest", username: event.currentTarget.value, password: request.auth.password } })} /></label>
+                <label className="field"><span>Пароль</span><input value={request.auth.password} onChange={(event) => request.auth.type === "digest" && patch({ auth: { type: "digest", username: request.auth.username, password: event.currentTarget.value } })} placeholder="{{secret:DIGEST_PASSWORD}}" /></label>
+                <p className="help-text">ReqVault получит challenge от сервера и повторит запрос с MD5 или SHA-256 подписью. Поддерживается qop=auth.</p>
               </>
             )}
             {(request.auth.type === "api_key_header" || request.auth.type === "api_key_query") && (
@@ -229,6 +247,16 @@ export function RequestEditor({
                   <button className="secondary-button" type="button" onClick={onRefreshOAuth} disabled={oauthBusy || !request.auth.refresh_token.trim()}>Обновить token</button>
                 </div>
                 {oauthStatus && <p className="help-text">{oauthStatus}</p>}
+              </div>
+            )}
+            {request.auth.type === "aws_sig_v4" && (
+              <div className="oauth-editor">
+                <label className="field"><span>Access key</span><input value={request.auth.access_key} onChange={(event) => request.auth.type === "aws_sig_v4" && patch({ auth: { ...request.auth, access_key: event.currentTarget.value } })} placeholder="{{secret:AWS_ACCESS_KEY}}" /></label>
+                <label className="field"><span>Secret key</span><input value={request.auth.secret_key} onChange={(event) => request.auth.type === "aws_sig_v4" && patch({ auth: { ...request.auth, secret_key: event.currentTarget.value } })} placeholder="{{secret:AWS_SECRET_KEY}}" /></label>
+                <label className="field"><span>Session token</span><input value={request.auth.session_token} onChange={(event) => request.auth.type === "aws_sig_v4" && patch({ auth: { ...request.auth, session_token: event.currentTarget.value } })} placeholder="{{secret:AWS_SESSION_TOKEN}} — необязательно" /></label>
+                <label className="field"><span>Region</span><input value={request.auth.region} onChange={(event) => request.auth.type === "aws_sig_v4" && patch({ auth: { ...request.auth, region: event.currentTarget.value } })} placeholder="us-east-1" /></label>
+                <label className="field"><span>Service</span><input value={request.auth.service} onChange={(event) => request.auth.type === "aws_sig_v4" && patch({ auth: { ...request.auth, service: event.currentTarget.value } })} placeholder="execute-api" /></label>
+                <p className="help-text">Подпись рассчитывается локально перед отправкой. Multipart с AWS SigV4 заблокирован, чтобы не отправить неверную подпись.</p>
               </div>
             )}
             <p className="help-text">Для токенов и паролей используй ссылку вида <code>{"{{secret:NAME}}"}</code>.</p>

@@ -14,6 +14,7 @@ type Props = {
   onExport: () => void;
   onSettings: () => void;
   onHistory: () => void;
+  onCookies: () => void;
   onRun: () => void;
   onStream: () => void;
   onClose: () => void;
@@ -47,6 +48,7 @@ export function Sidebar({
   onExport,
   onSettings,
   onHistory,
+  onCookies,
   onRun,
   onStream,
   onClose,
@@ -91,6 +93,7 @@ export function Sidebar({
         <button className="secondary-button" type="button" onClick={onImportCurl}>cURL</button>
         <button className="secondary-button" type="button" onClick={onExport}>Экспорт</button>
         <button className="secondary-button" type="button" onClick={onHistory}>История</button>
+        <button className="secondary-button" type="button" onClick={onCookies}>Cookie</button>
         <button className="secondary-button" type="button" onClick={onRun}>Запуск</button>
         <button className="secondary-button" type="button" onClick={onStream}>Потоки</button>
         <button className="secondary-button guard-button" type="button" onClick={onSettings}>

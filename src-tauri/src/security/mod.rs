@@ -51,7 +51,7 @@ pub fn analyze(request: &RequestFile, environment: Option<&EnvironmentFile>) -> 
             in_headers += count;
             count
         }
-        AuthConfig::Basic { username, password } => {
+        AuthConfig::Basic { username, password } | AuthConfig::Digest { username, password } => {
             let count = reference_count(username) + reference_count(password);
             in_headers += count;
             count
@@ -76,6 +76,18 @@ pub fn analyze(request: &RequestFile, environment: Option<&EnvironmentFile>) -> 
                 + reference_count(client_secret)
                 + reference_count(refresh_token);
             in_headers += reference_count(access_token);
+            count
+        }
+        AuthConfig::AwsSigV4 {
+            access_key,
+            secret_key,
+            session_token,
+            ..
+        } => {
+            let count = reference_count(access_key)
+                + reference_count(secret_key)
+                + reference_count(session_token);
+            in_headers += count;
             count
         }
     };
@@ -184,6 +196,13 @@ pub fn curl(
             shell_quote("Authorization: Bearer ***REDACTED***")
         )),
         AuthConfig::Basic { .. } => parts.push(format!("  -u {}", shell_quote("***REDACTED***"))),
+        AuthConfig::Digest { username, .. } => {
+            parts.push("  --digest".to_string());
+            parts.push(format!(
+                "  -u {}",
+                shell_quote(&format!("{}:***REDACTED***", safe(username)?))
+            ));
+        }
         AuthConfig::ApiKeyHeader { name, .. } => parts.push(format!(
             "  -H {}",
             shell_quote(&format!("{}: ***REDACTED***", safe(name)?))
@@ -191,6 +210,12 @@ pub fn curl(
         AuthConfig::OAuth2 { .. } => parts.push(format!(
             "  -H {}",
             shell_quote("Authorization: Bearer ***REDACTED***")
+        )),
+        AuthConfig::AwsSigV4 {
+            region, service, ..
+        } => parts.push(format!(
+            "  --aws-sigv4 {}",
+            shell_quote(&format!("aws:amz:{}:{}", safe(region)?, safe(service)?))
         )),
     }
 

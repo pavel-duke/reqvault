@@ -16,6 +16,7 @@ import type {
   WorkspaceConfig,
   CollectionRunOptions,
   CollectionRunReport,
+  CookieSummary,
   StreamConnectConfig,
   StreamEvent,
 } from "./types";
@@ -126,6 +127,22 @@ export function removeHistoryEntry(workspaceId: string, id: string): Promise<voi
 
 export function clearHistory(workspaceId: string): Promise<void> {
   return invoke("clear_history", { workspaceId });
+}
+
+export function listCookies(workspaceId: string): Promise<CookieSummary[]> {
+  return invoke("list_cookies", { workspaceId });
+}
+
+export function deleteCookie(workspaceId: string, cookieId: string): Promise<void> {
+  return invoke("delete_cookie", { workspaceId, cookieId });
+}
+
+export function clearCookies(workspaceId: string): Promise<void> {
+  return invoke("clear_cookies", { workspaceId });
+}
+
+export function closeWorkspaceSession(workspaceId: string): Promise<void> {
+  return invoke("close_workspace_session", { workspaceId });
 }
 
 export async function sendHttpRequest(

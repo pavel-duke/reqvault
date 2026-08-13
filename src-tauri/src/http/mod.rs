@@ -1,10 +1,14 @@
-use std::{fs, time::Duration};
+use std::{collections::BTreeMap, fs, time::Duration};
 
+use hmac::{Hmac, Mac};
+use md5::Md5;
 use reqwest::{
     Certificate, Client, Identity, Method, Proxy,
-    header::{CONTENT_TYPE, HeaderMap, HeaderName, HeaderValue},
+    header::{AUTHORIZATION, CONTENT_TYPE, HeaderMap, HeaderName, HeaderValue, WWW_AUTHENTICATE},
     redirect::Policy,
 };
+use sha2::{Digest, Sha256};
+use time::{OffsetDateTime, macros::format_description};
 use url::Url;
 use uuid::Uuid;
 
@@ -14,6 +18,7 @@ use crate::{
         ResponseHeader,
     },
     redaction::{redact_header, redact_text},
+    session::CookieJar,
     variables::{ResolveError, is_exact_secret_reference, resolve_secrets, resolve_variables},
 };
 
@@ -29,6 +34,23 @@ struct PreparedRequest {
     follow_redirects: bool,
     secret_values: Vec<String>,
     transport: PreparedTransport,
+    auth: PreparedAuth,
+}
+
+#[derive(Debug, Clone)]
+enum PreparedAuth {
+    None,
+    Digest {
+        username: String,
+        password: String,
+    },
+    AwsSigV4 {
+        access_key: String,
+        secret_key: String,
+        session_token: String,
+        region: String,
+        service: String,
+    },
 }
 
 #[derive(Debug, Clone)]
@@ -49,7 +71,8 @@ enum PreparedProxy {
     },
 }
 
-pub async fn send<F>(
+#[cfg(test)]
+async fn send<F>(
     request: &RequestFile,
     environment: Option<&EnvironmentFile>,
     resolve_secret: &mut F,
@@ -57,8 +80,20 @@ pub async fn send<F>(
 where
     F: FnMut(&str) -> Result<String, ResolveError>,
 {
+    send_with_session(request, environment, resolve_secret, None).await
+}
+
+pub async fn send_with_session<F>(
+    request: &RequestFile,
+    environment: Option<&EnvironmentFile>,
+    resolve_secret: &mut F,
+    cookie_jar: Option<&CookieJar>,
+) -> Result<HttpResponse, HttpError>
+where
+    F: FnMut(&str) -> Result<String, ResolveError>,
+{
     let prepared = prepare(request, environment, resolve_secret).map_err(resolve_error)?;
-    execute(prepared).await
+    execute(prepared, cookie_jar).await
 }
 
 fn prepare<F>(
@@ -121,12 +156,13 @@ where
         headers.insert(header_name, header_value);
     }
 
-    match &request.auth {
-        AuthConfig::None | AuthConfig::ApiKeyQuery { .. } => {}
+    let prepared_auth = match &request.auth {
+        AuthConfig::None | AuthConfig::ApiKeyQuery { .. } => PreparedAuth::None,
         AuthConfig::Bearer { token } => {
             let value = HeaderValue::from_str(&format!("Bearer {}", resolve(token)?))
                 .map_err(|_| PrepareError::InvalidHeaderValue("Authorization".to_string()))?;
             headers.insert(reqwest::header::AUTHORIZATION, value);
+            PreparedAuth::None
         }
         AuthConfig::Basic { username, password } => {
             use base64::{Engine as _, engine::general_purpose::STANDARD};
@@ -135,7 +171,12 @@ where
                 HeaderValue::from_str(&format!("Basic {}", STANDARD.encode(credentials)))
                     .map_err(|_| PrepareError::InvalidHeaderValue("Authorization".to_string()))?;
             headers.insert(reqwest::header::AUTHORIZATION, value);
+            PreparedAuth::None
         }
+        AuthConfig::Digest { username, password } => PreparedAuth::Digest {
+            username: resolve(username)?,
+            password: resolve(password)?,
+        },
         AuthConfig::ApiKeyHeader { name, value } => {
             let resolved_name = resolve(name)?;
             let header_name = HeaderName::from_bytes(resolved_name.as_bytes())
@@ -143,13 +184,28 @@ where
             let header_value = HeaderValue::from_str(&resolve(value)?)
                 .map_err(|_| PrepareError::InvalidHeaderValue(resolved_name))?;
             headers.insert(header_name, header_value);
+            PreparedAuth::None
         }
         AuthConfig::OAuth2 { access_token, .. } => {
             let value = HeaderValue::from_str(&format!("Bearer {}", resolve(access_token)?))
                 .map_err(|_| PrepareError::InvalidHeaderValue("Authorization".to_string()))?;
             headers.insert(reqwest::header::AUTHORIZATION, value);
+            PreparedAuth::None
         }
-    }
+        AuthConfig::AwsSigV4 {
+            access_key,
+            secret_key,
+            session_token,
+            region,
+            service,
+        } => PreparedAuth::AwsSigV4 {
+            access_key: resolve(access_key)?,
+            secret_key: resolve(secret_key)?,
+            session_token: resolve(session_token)?,
+            region: resolve(region)?,
+            service: resolve(service)?,
+        },
+    };
 
     let body = match &request.body {
         BodyConfig::None => BodyConfig::None,
@@ -281,6 +337,7 @@ where
             custom_ca,
             identity,
         },
+        auth: prepared_auth,
     })
 }
 
@@ -296,6 +353,7 @@ fn validate_credentials(request: &RequestFile) -> Result<(), PrepareError> {
         AuthConfig::None => {}
         AuthConfig::Bearer { token } => require_reference(token, "Bearer token")?,
         AuthConfig::Basic { password, .. } => require_reference(password, "пароль Basic Auth")?,
+        AuthConfig::Digest { password, .. } => require_reference(password, "пароль Digest Auth")?,
         AuthConfig::ApiKeyHeader { value, .. } | AuthConfig::ApiKeyQuery { value, .. } => {
             require_reference(value, "API key")?
         }
@@ -308,6 +366,16 @@ fn validate_credentials(request: &RequestFile) -> Result<(), PrepareError> {
             require_reference(client_secret, "OAuth client secret")?;
             require_reference(access_token, "OAuth access token")?;
             require_reference(refresh_token, "OAuth refresh token")?;
+        }
+        AuthConfig::AwsSigV4 {
+            access_key,
+            secret_key,
+            session_token,
+            ..
+        } => {
+            require_reference(access_key, "AWS access key")?;
+            require_reference(secret_key, "AWS secret key")?;
+            require_reference(session_token, "AWS session token")?;
         }
     }
     if let ProxyConfig::Custom { password, .. } = &request.transport.proxy {
@@ -325,9 +393,19 @@ fn read_optional_pem(path: &str, purpose: &'static str) -> Result<Option<Vec<u8>
         .map_err(|error| PrepareError::ReadTlsFile(purpose, error.to_string()))
 }
 
-async fn execute(prepared: PreparedRequest) -> Result<HttpResponse, HttpError> {
+async fn execute(
+    mut prepared: PreparedRequest,
+    cookie_jar: Option<&CookieJar>,
+) -> Result<HttpResponse, HttpError> {
     let request_id = Uuid::new_v4().to_string();
     let host = prepared.url.host_str().unwrap_or("сервер").to_string();
+    let request_url = prepared.url.clone();
+    if !prepared.headers.contains_key(reqwest::header::COOKIE)
+        && let Some(cookie) = cookie_jar.and_then(|jar| jar.request_header(&request_url))
+        && let Ok(value) = HeaderValue::from_str(&cookie)
+    {
+        prepared.headers.insert(reqwest::header::COOKIE, value);
+    }
     let mut client_builder = Client::builder()
         .redirect(if prepared.follow_redirects {
             Policy::limited(10)
@@ -388,9 +466,13 @@ async fn execute(prepared: PreparedRequest) -> Result<HttpResponse, HttpError> {
         )
     })?;
 
+    if matches!(prepared.auth, PreparedAuth::AwsSigV4 { .. }) {
+        sign_aws_request(&mut prepared, OffsetDateTime::now_utc())?;
+    }
+
     let mut builder = client
-        .request(prepared.method, prepared.url)
-        .headers(prepared.headers);
+        .request(prepared.method.clone(), prepared.url.clone())
+        .headers(prepared.headers.clone());
     builder = match &prepared.body {
         BodyConfig::None => builder,
         BodyConfig::Json { value } => builder
@@ -493,6 +575,47 @@ async fn execute(prepared: PreparedRequest) -> Result<HttpResponse, HttpError> {
         };
         request_error(&message, error, &prepared.secret_values, error_type)
     })?;
+    if response.status() == reqwest::StatusCode::UNAUTHORIZED
+        && let PreparedAuth::Digest { username, password } = &prepared.auth
+        && let Some(challenge) = response.headers().get(WWW_AUTHENTICATE)
+        && let Ok(challenge) = challenge.to_str()
+        && challenge
+            .split_once(' ')
+            .is_some_and(|(scheme, _)| scheme.eq_ignore_ascii_case("digest"))
+    {
+        if let Some(jar) = cookie_jar {
+            for header in response.headers().get_all(reqwest::header::SET_COOKIE) {
+                if let Ok(value) = header.to_str() {
+                    jar.store(&request_url, value);
+                }
+            }
+        }
+        let authorization = digest_authorization(
+            challenge,
+            &prepared.method,
+            &prepared.url,
+            username,
+            password,
+        )?;
+        let challenge_duration = started.elapsed().as_millis();
+        let mut retry = prepared.clone();
+        retry.auth = PreparedAuth::None;
+        retry.headers.insert(
+            AUTHORIZATION,
+            HeaderValue::from_str(&authorization)
+                .map_err(|_| auth_error("Некорректный Digest Authorization"))?,
+        );
+        let mut result = Box::pin(execute(retry, cookie_jar)).await?;
+        result.duration_ms += challenge_duration;
+        return Ok(result);
+    }
+    if let Some(jar) = cookie_jar {
+        for header in response.headers().get_all(reqwest::header::SET_COOKIE) {
+            if let Ok(value) = header.to_str() {
+                jar.store(&request_url, value);
+            }
+        }
+    }
     let duration_ms = started.elapsed().as_millis();
     let status = response.status();
     let headers = response
@@ -530,6 +653,380 @@ async fn execute(prepared: PreparedRequest) -> Result<HttpResponse, HttpError> {
         body,
         is_json,
     })
+}
+
+fn digest_authorization(
+    challenge: &str,
+    method: &Method,
+    url: &Url,
+    username: &str,
+    password: &str,
+) -> Result<String, HttpError> {
+    digest_authorization_with_cnonce(
+        challenge,
+        method,
+        url,
+        username,
+        password,
+        &Uuid::new_v4().simple().to_string(),
+    )
+}
+
+fn digest_authorization_with_cnonce(
+    challenge: &str,
+    method: &Method,
+    url: &Url,
+    username: &str,
+    password: &str,
+    cnonce: &str,
+) -> Result<String, HttpError> {
+    let (_, parameters) = challenge
+        .split_once(' ')
+        .ok_or_else(|| auth_error("Digest challenge не содержит параметры"))?;
+    let values = parse_auth_parameters(parameters);
+    let realm = values
+        .get("realm")
+        .ok_or_else(|| auth_error("Digest challenge не содержит realm"))?;
+    let nonce = values
+        .get("nonce")
+        .ok_or_else(|| auth_error("Digest challenge не содержит nonce"))?;
+    let algorithm = values.get("algorithm").map_or("MD5", String::as_str);
+    let qop = values.get("qop").and_then(|value| {
+        value
+            .split(',')
+            .map(str::trim)
+            .find(|value| value.eq_ignore_ascii_case("auth"))
+    });
+    if values.contains_key("qop") && qop.is_none() {
+        return Err(auth_error("Digest qop поддерживает только auth"));
+    }
+    let mut uri = if url.path().is_empty() {
+        "/".to_string()
+    } else {
+        url.path().to_string()
+    };
+    if let Some(query) = url.query() {
+        uri.push('?');
+        uri.push_str(query);
+    }
+    let nc = "00000001";
+    let base_ha1 = digest_hash(algorithm, &format!("{username}:{realm}:{password}"))?;
+    let ha1 = if algorithm.to_ascii_lowercase().ends_with("-sess") {
+        digest_hash(algorithm, &format!("{base_ha1}:{nonce}:{cnonce}"))?
+    } else {
+        base_ha1
+    };
+    let ha2 = digest_hash(algorithm, &format!("{}:{uri}", method.as_str()))?;
+    let response = if let Some(qop) = qop {
+        digest_hash(
+            algorithm,
+            &format!("{ha1}:{nonce}:{nc}:{cnonce}:{qop}:{ha2}"),
+        )?
+    } else {
+        digest_hash(algorithm, &format!("{ha1}:{nonce}:{ha2}"))?
+    };
+    let mut parts = vec![
+        format!("username=\"{}\"", quote_auth(username)),
+        format!("realm=\"{}\"", quote_auth(realm)),
+        format!("nonce=\"{}\"", quote_auth(nonce)),
+        format!("uri=\"{}\"", quote_auth(&uri)),
+        format!("response=\"{response}\""),
+        format!("algorithm={algorithm}"),
+    ];
+    if let Some(opaque) = values.get("opaque") {
+        parts.push(format!("opaque=\"{}\"", quote_auth(opaque)));
+    }
+    if let Some(qop) = qop {
+        parts.extend([
+            format!("qop={qop}"),
+            format!("nc={nc}"),
+            format!("cnonce=\"{cnonce}\""),
+        ]);
+    }
+    Ok(format!("Digest {}", parts.join(", ")))
+}
+
+fn parse_auth_parameters(input: &str) -> BTreeMap<String, String> {
+    let mut result = BTreeMap::new();
+    let mut start = 0;
+    let mut quoted = false;
+    let mut escaped = false;
+    let mut items = Vec::new();
+    for (index, character) in input.char_indices() {
+        match character {
+            '\\' if quoted && !escaped => escaped = true,
+            '"' if !escaped => quoted = !quoted,
+            ',' if !quoted => {
+                items.push(&input[start..index]);
+                start = index + 1;
+            }
+            _ => escaped = false,
+        }
+    }
+    items.push(&input[start..]);
+    for item in items {
+        if let Some((name, value)) = item.trim().split_once('=') {
+            result.insert(
+                name.trim().to_ascii_lowercase(),
+                value.trim().trim_matches('"').replace("\\\"", "\""),
+            );
+        }
+    }
+    result
+}
+
+fn quote_auth(value: &str) -> String {
+    value.replace('\\', "\\\\").replace('"', "\\\"")
+}
+
+fn digest_hash(algorithm: &str, value: &str) -> Result<String, HttpError> {
+    match algorithm.to_ascii_uppercase().as_str() {
+        "MD5" | "MD5-SESS" => Ok(hex(&Md5::digest(value.as_bytes()))),
+        "SHA-256" | "SHA-256-SESS" => Ok(hex(&Sha256::digest(value.as_bytes()))),
+        _ => Err(auth_error(&format!(
+            "Digest algorithm {algorithm} не поддерживается"
+        ))),
+    }
+}
+
+fn sign_aws_request(prepared: &mut PreparedRequest, now: OffsetDateTime) -> Result<(), HttpError> {
+    let PreparedAuth::AwsSigV4 {
+        access_key,
+        secret_key,
+        session_token,
+        region,
+        service,
+    } = &prepared.auth
+    else {
+        return Ok(());
+    };
+    if matches!(prepared.body, BodyConfig::Multipart { .. }) {
+        return Err(auth_error("AWS SigV4 пока не поддерживает multipart body"));
+    }
+    if access_key.is_empty() || secret_key.is_empty() || region.is_empty() || service.is_empty() {
+        return Err(auth_error(
+            "Для AWS SigV4 нужны access key, secret key, region и service",
+        ));
+    }
+    let date_format = format_description!("[year][month][day]T[hour][minute][second]Z");
+    let amz_date = now
+        .format(&date_format)
+        .map_err(|_| auth_error("Не удалось сформировать дату AWS SigV4"))?;
+    let short_date = &amz_date[..8];
+    let payload_hash = hex(&Sha256::digest(request_body_bytes(&prepared.body)?));
+    prepared.headers.insert(
+        HeaderName::from_static("x-amz-date"),
+        HeaderValue::from_str(&amz_date).map_err(|_| auth_error("Некорректная дата AWS SigV4"))?,
+    );
+    prepared.headers.insert(
+        HeaderName::from_static("x-amz-content-sha256"),
+        HeaderValue::from_str(&payload_hash)
+            .map_err(|_| auth_error("Некорректный хеш AWS SigV4"))?,
+    );
+    if !session_token.is_empty() {
+        prepared.headers.insert(
+            HeaderName::from_static("x-amz-security-token"),
+            HeaderValue::from_str(session_token)
+                .map_err(|_| auth_error("Некорректный AWS session token"))?,
+        );
+    }
+
+    let mut signed_headers = vec!["host", "x-amz-content-sha256", "x-amz-date"];
+    if !session_token.is_empty() {
+        signed_headers.push("x-amz-security-token");
+    }
+    signed_headers.sort_unstable();
+    let host = canonical_host(&prepared.url);
+    let canonical_headers = signed_headers
+        .iter()
+        .map(|name| {
+            let value = if *name == "host" {
+                host.as_str()
+            } else {
+                prepared
+                    .headers
+                    .get(*name)
+                    .and_then(|value| value.to_str().ok())
+                    .unwrap_or("")
+            };
+            format!("{name}:{}\n", normalize_header(value))
+        })
+        .collect::<String>();
+    let signed_headers_value = signed_headers.join(";");
+    let canonical_request = format!(
+        "{}\n{}\n{}\n{}\n{}\n{}",
+        prepared.method.as_str(),
+        canonical_uri(&prepared.url),
+        canonical_query(&prepared.url),
+        canonical_headers,
+        signed_headers_value,
+        payload_hash
+    );
+    let scope = format!("{short_date}/{region}/{service}/aws4_request");
+    let string_to_sign = format!(
+        "AWS4-HMAC-SHA256\n{amz_date}\n{scope}\n{}",
+        hex(&Sha256::digest(canonical_request.as_bytes()))
+    );
+    let date_key = hmac_sha256(
+        format!("AWS4{secret_key}").as_bytes(),
+        short_date.as_bytes(),
+    )?;
+    let region_key = hmac_sha256(&date_key, region.as_bytes())?;
+    let service_key = hmac_sha256(&region_key, service.as_bytes())?;
+    let signing_key = hmac_sha256(&service_key, b"aws4_request")?;
+    let signature = hex(&hmac_sha256(&signing_key, string_to_sign.as_bytes())?);
+    let authorization = format!(
+        "AWS4-HMAC-SHA256 Credential={access_key}/{scope}, SignedHeaders={signed_headers_value}, Signature={signature}"
+    );
+    prepared.headers.insert(
+        AUTHORIZATION,
+        HeaderValue::from_str(&authorization)
+            .map_err(|_| auth_error("Некорректная подпись AWS SigV4"))?,
+    );
+    Ok(())
+}
+
+fn request_body_bytes(body: &BodyConfig) -> Result<Vec<u8>, HttpError> {
+    match body {
+        BodyConfig::None => Ok(Vec::new()),
+        BodyConfig::Json { value } | BodyConfig::Raw { value, .. } => Ok(value.as_bytes().to_vec()),
+        BodyConfig::Graphql {
+            query,
+            variables,
+            operation_name,
+        } => {
+            let variables = serde_json::from_str::<serde_json::Value>(variables)
+                .map_err(|error| auth_error(&format!("Некорректные GraphQL variables: {error}")))?;
+            let mut payload = serde_json::Map::from_iter([
+                (
+                    "query".to_string(),
+                    serde_json::Value::String(query.clone()),
+                ),
+                ("variables".to_string(), variables),
+            ]);
+            if !operation_name.trim().is_empty() {
+                payload.insert(
+                    "operationName".to_string(),
+                    serde_json::Value::String(operation_name.clone()),
+                );
+            }
+            Ok(serde_json::Value::Object(payload).to_string().into_bytes())
+        }
+        BodyConfig::FormUrlencoded { fields } => {
+            let mut serializer = url::form_urlencoded::Serializer::new(String::new());
+            for field in fields {
+                serializer.append_pair(&field.name, &field.value);
+            }
+            Ok(serializer.finish().into_bytes())
+        }
+        BodyConfig::Multipart { .. } => {
+            Err(auth_error("AWS SigV4 пока не поддерживает multipart body"))
+        }
+    }
+}
+
+fn canonical_host(url: &Url) -> String {
+    let host = url.host_str().unwrap_or_default();
+    match url.port() {
+        Some(port) => format!("{host}:{port}"),
+        None => host.to_string(),
+    }
+}
+
+fn canonical_uri(url: &Url) -> String {
+    let path = if url.path().is_empty() {
+        "/"
+    } else {
+        url.path()
+    };
+    path.split('/')
+        .map(|part| aws_encode(&percent_decode(part), true))
+        .collect::<Vec<_>>()
+        .join("/")
+}
+
+fn canonical_query(url: &Url) -> String {
+    let mut pairs = url
+        .query_pairs()
+        .map(|(name, value)| {
+            (
+                aws_encode(name.as_bytes(), true),
+                aws_encode(value.as_bytes(), true),
+            )
+        })
+        .collect::<Vec<_>>();
+    pairs.sort();
+    pairs
+        .into_iter()
+        .map(|(name, value)| format!("{name}={value}"))
+        .collect::<Vec<_>>()
+        .join("&")
+}
+
+fn percent_decode(value: &str) -> Vec<u8> {
+    let bytes = value.as_bytes();
+    let mut result = Vec::with_capacity(bytes.len());
+    let mut index = 0;
+    while index < bytes.len() {
+        if bytes[index] == b'%'
+            && index + 2 < bytes.len()
+            && let (Some(high), Some(low)) =
+                (hex_digit(bytes[index + 1]), hex_digit(bytes[index + 2]))
+        {
+            result.push((high << 4) | low);
+            index += 3;
+        } else {
+            result.push(bytes[index]);
+            index += 1;
+        }
+    }
+    result
+}
+
+fn hex_digit(value: u8) -> Option<u8> {
+    match value {
+        b'0'..=b'9' => Some(value - b'0'),
+        b'a'..=b'f' => Some(value - b'a' + 10),
+        b'A'..=b'F' => Some(value - b'A' + 10),
+        _ => None,
+    }
+}
+
+fn aws_encode(value: &[u8], encode_slash: bool) -> String {
+    value.iter().fold(String::new(), |mut output, byte| {
+        if byte.is_ascii_alphanumeric()
+            || matches!(*byte, b'-' | b'_' | b'.' | b'~')
+            || (*byte == b'/' && !encode_slash)
+        {
+            output.push(*byte as char);
+        } else {
+            output.push_str(&format!("%{byte:02X}"));
+        }
+        output
+    })
+}
+
+fn normalize_header(value: &str) -> String {
+    value.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+fn hmac_sha256(key: &[u8], value: &[u8]) -> Result<Vec<u8>, HttpError> {
+    let mut mac = Hmac::<Sha256>::new_from_slice(key)
+        .map_err(|_| auth_error("Не удалось создать HMAC для AWS SigV4"))?;
+    mac.update(value);
+    Ok(mac.finalize().into_bytes().to_vec())
+}
+
+fn hex(value: &[u8]) -> String {
+    value.iter().map(|byte| format!("{byte:02x}")).collect()
+}
+
+fn auth_error(message: &str) -> HttpError {
+    HttpError {
+        message: message.to_string(),
+        details: None,
+        error_type: "auth".to_string(),
+    }
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -822,6 +1319,140 @@ mod tests {
         assert!(raw.contains("name=\"file\""));
         assert!(raw.contains("multipart-test-file"));
         fs::remove_file(file_path).unwrap();
+    }
+
+    #[test]
+    fn builds_rfc_digest_authorization() {
+        let authorization = digest_authorization_with_cnonce(
+            "Digest realm=\"testrealm@host.com\", qop=\"auth,auth-int\", nonce=\"dcd98b7102dd2f0e8b11d0f600bfb0c093\", opaque=\"5ccc069c403ebaf9f0171e9517f40e41\"",
+            &Method::GET,
+            &Url::parse("http://www.example.com/dir/index.html").unwrap(),
+            "Mufasa",
+            "Circle Of Life",
+            "0a4f113b",
+        )
+        .unwrap();
+        assert!(authorization.starts_with("Digest username=\"Mufasa\""));
+        assert!(authorization.contains("response=\"6629fae49393a05397450978507c4ef1\""));
+        assert!(authorization.contains("qop=auth"));
+        assert!(authorization.contains("nc=00000001"));
+    }
+
+    #[test]
+    fn signs_aws_documentation_request() {
+        let request = RequestFile {
+            url: "https://iam.amazonaws.com/?Action=ListUsers&Version=2010-05-08".to_string(),
+            auth: AuthConfig::AwsSigV4 {
+                access_key: "{{secret:AWS_ACCESS_KEY}}".to_string(),
+                secret_key: "{{secret:AWS_SECRET_KEY}}".to_string(),
+                session_token: String::new(),
+                region: "us-east-1".to_string(),
+                service: "iam".to_string(),
+            },
+            ..RequestFile::default()
+        };
+        let mut resolver = |name: &str| match name {
+            "AWS_ACCESS_KEY" => Ok("AKIDEXAMPLE".to_string()),
+            "AWS_SECRET_KEY" => Ok("wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY".to_string()),
+            _ => Err(ResolveError::MissingSecret(name.to_string())),
+        };
+        let mut prepared = prepare(&request, None, &mut resolver).unwrap();
+        sign_aws_request(
+            &mut prepared,
+            time::macros::datetime!(2015-08-30 12:36:00 UTC),
+        )
+        .unwrap();
+        assert_eq!(prepared.headers["x-amz-date"], "20150830T123600Z");
+        assert_eq!(
+            prepared.headers["x-amz-content-sha256"],
+            "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        );
+        let authorization = prepared.headers[AUTHORIZATION].to_str().unwrap();
+        assert!(
+            authorization.ends_with(
+                "Signature=65f031d93b4631aedf16a8f7f830cdc8ce2bc5276c307b5a2cc2143d4b68e323"
+            ),
+            "{authorization}"
+        );
+    }
+
+    #[tokio::test]
+    async fn retries_digest_challenge() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let received = tokio::spawn(async move {
+            let (mut first, _) = listener.accept().await.unwrap();
+            let mut buffer = vec![0; 4096];
+            let _ = first.read(&mut buffer).await.unwrap();
+            first
+                .write_all(b"HTTP/1.1 401 Unauthorized\r\nWWW-Authenticate: Digest realm=\"ReqVault\", nonce=\"test-nonce\", algorithm=SHA-256, qop=\"auth\"\r\nContent-Length: 0\r\n\r\n")
+                .await
+                .unwrap();
+            let (mut second, _) = listener.accept().await.unwrap();
+            let read = second.read(&mut buffer).await.unwrap();
+            second
+                .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n")
+                .await
+                .unwrap();
+            String::from_utf8_lossy(&buffer[..read]).into_owned()
+        });
+        let request = RequestFile {
+            url: format!("http://{address}/private"),
+            auth: AuthConfig::Digest {
+                username: "pavel".to_string(),
+                password: "{{secret:DIGEST_PASSWORD}}".to_string(),
+            },
+            ..RequestFile::default()
+        };
+        let mut resolver = |name: &str| match name {
+            "DIGEST_PASSWORD" => Ok("secret".to_string()),
+            _ => Err(ResolveError::MissingSecret(name.to_string())),
+        };
+        let response = send(&request, None, &mut resolver).await.unwrap();
+        let raw = received.await.unwrap();
+        assert_eq!(response.status, 200);
+        assert!(raw.to_ascii_lowercase().contains("authorization: digest "));
+        assert!(raw.contains("algorithm=SHA-256"));
+    }
+
+    #[tokio::test]
+    async fn stores_and_sends_session_cookie() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let received = tokio::spawn(async move {
+            let (mut first, _) = listener.accept().await.unwrap();
+            let mut buffer = vec![0; 4096];
+            let _ = first.read(&mut buffer).await.unwrap();
+            first
+                .write_all(b"HTTP/1.1 200 OK\r\nSet-Cookie: session=private; Path=/; HttpOnly; SameSite=Lax\r\nContent-Length: 0\r\n\r\n")
+                .await
+                .unwrap();
+            let (mut second, _) = listener.accept().await.unwrap();
+            let read = second.read(&mut buffer).await.unwrap();
+            second
+                .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n")
+                .await
+                .unwrap();
+            String::from_utf8_lossy(&buffer[..read]).into_owned()
+        });
+        let jar = CookieJar::default();
+        let request = RequestFile {
+            url: format!("http://{address}/account"),
+            ..RequestFile::default()
+        };
+        send_with_session(&request, None, &mut unavailable_secret, Some(&jar))
+            .await
+            .unwrap();
+        send_with_session(&request, None, &mut unavailable_secret, Some(&jar))
+            .await
+            .unwrap();
+        let raw = received.await.unwrap();
+        assert!(raw.to_ascii_lowercase().contains("cookie: session=private"));
+        assert_eq!(
+            jar.request_header(&Url::parse(&request.url).unwrap())
+                .as_deref(),
+            Some("session=private")
+        );
     }
 
     #[test]

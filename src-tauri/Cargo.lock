@@ -2304,6 +2304,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "md-5"
+version = "0.10.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d89e7ee0cfbedfc4da3340218492196241d89eefb6dab27de5df917a6d2e78cf"
+dependencies = [
+ "cfg-if",
+ "digest",
+]
+
+[[package]]
 name = "memchr"
 version = "2.8.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3297,11 +3307,14 @@ checksum = "d6f6ff9a378485b298a5286656da665ba74413d36db0979633275d2e708145d4"
 
 [[package]]
 name = "reqvault"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "base64 0.22.1",
+ "cookie",
  "futures-util",
+ "hmac",
  "keyring",
+ "md-5",
  "regex",
  "reqwest 0.12.28",
  "serde",
@@ -3313,6 +3326,7 @@ dependencies = [
  "tauri-plugin-clipboard-manager",
  "tauri-plugin-dialog",
  "thiserror 2.0.20",
+ "time",
  "tokio",
  "tokio-tungstenite",
  "url",

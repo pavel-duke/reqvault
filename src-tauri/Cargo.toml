@@ -1,6 +1,6 @@
 [package]
 name = "reqvault"
-version = "0.6.0"
+version = "0.7.0"
 description = "Локальный REST API-клиент с безопасным хранением секретов"
 authors = ["Pavel"]
 edition = "2024"
@@ -39,5 +39,9 @@ webbrowser = "1.2"
 tokio = { version = "1", features = ["io-util", "macros", "net", "rt-multi-thread", "time"] }
 futures-util = "0.3"
 tokio-tungstenite = { version = "0.28", features = ["rustls-tls-webpki-roots"] }
+cookie = "0.18"
+hmac = "0.12"
+md-5 = "0.10"
+time = { version = "0.3", features = ["formatting", "macros"] }
 
 [dev-dependencies]

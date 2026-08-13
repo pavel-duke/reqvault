@@ -10,6 +10,7 @@ mod redaction;
 mod runner;
 mod secrets;
 mod security;
+mod session;
 mod stream;
 mod variables;
 mod workspace;
@@ -18,6 +19,7 @@ mod workspace;
 pub fn run() {
     tauri::Builder::default()
         .manage(stream::StreamState::default())
+        .manage(session::SessionState::default())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_clipboard_manager::init())
         .invoke_handler(tauri::generate_handler![
@@ -50,6 +52,10 @@ pub fn run() {
             commands::stream::connect_stream,
             commands::stream::send_stream_message,
             commands::stream::disconnect_stream,
+            commands::session::list_cookies,
+            commands::session::delete_cookie,
+            commands::session::clear_cookies,
+            commands::session::close_workspace_session,
         ])
         .run(tauri::generate_context!())
         .expect("не удалось запустить ReqVault");
