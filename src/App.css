@@ -1,0 +1,215 @@
+:root {
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  color: #18202b;
+  background: #f5f6f8;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  --background: #f5f6f8;
+  --surface: #ffffff;
+  --surface-muted: #f0f2f5;
+  --border: #d9dee6;
+  --text: #18202b;
+  --muted: #667085;
+  --accent: #2563eb;
+  --accent-hover: #1d4ed8;
+  --focus: rgba(37, 99, 235, 0.28);
+  --shadow: 0 14px 42px rgba(16, 24, 40, 0.09);
+}
+
+:root[data-theme="dark"] {
+  color: #e6eaf0;
+  background: #12161d;
+  --background: #12161d;
+  --surface: #191f28;
+  --surface-muted: #222a35;
+  --border: #313b49;
+  --text: #e6eaf0;
+  --muted: #98a2b3;
+  --accent: #6b9cff;
+  --accent-hover: #8aafff;
+  --focus: rgba(107, 156, 255, 0.3);
+  --shadow: 0 16px 44px rgba(0, 0, 0, 0.28);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  width: 100%;
+  min-width: 320px;
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  color: var(--text);
+  background: var(--background);
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+}
+
+button {
+  color: inherit;
+}
+
+button:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible {
+  outline: 3px solid var(--focus);
+  outline-offset: 1px;
+}
+
+.app-shell {
+  display: grid;
+  grid-template-rows: 54px 1fr;
+  min-height: 100%;
+}
+
+.topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 18px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+
+.brand-mark,
+.start-mark {
+  display: grid;
+  place-items: center;
+  color: white;
+  background: var(--accent);
+  font-weight: 800;
+  letter-spacing: -0.06em;
+}
+
+.brand-mark {
+  width: 28px;
+  height: 28px;
+  border-radius: 7px;
+  font-size: 11px;
+}
+
+.icon-button {
+  display: grid;
+  width: 34px;
+  height: 34px;
+  place-items: center;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--surface);
+  cursor: pointer;
+}
+
+.icon-button:hover {
+  background: var(--surface-muted);
+}
+
+.start-screen {
+  display: grid;
+  place-items: center;
+  padding: 32px;
+}
+
+.start-card {
+  width: min(480px, 100%);
+  padding: 38px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--surface);
+  box-shadow: var(--shadow);
+  text-align: center;
+}
+
+.start-mark {
+  width: 54px;
+  height: 54px;
+  margin: 0 auto 20px;
+  border-radius: 13px;
+  font-size: 19px;
+}
+
+.start-card h1 {
+  margin: 0 0 10px;
+  font-size: 24px;
+  letter-spacing: -0.025em;
+}
+
+.start-card p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 1.65;
+}
+
+.start-actions {
+  display: flex;
+  justify-content: center;
+  gap: 10px;
+  margin-top: 26px;
+}
+
+.primary-button,
+.secondary-button {
+  min-height: 38px;
+  padding: 0 16px;
+  border-radius: 7px;
+  font-size: 13px;
+  font-weight: 650;
+  cursor: pointer;
+}
+
+.primary-button {
+  color: white;
+  border: 1px solid var(--accent);
+  background: var(--accent);
+}
+
+.primary-button:hover {
+  border-color: var(--accent-hover);
+  background: var(--accent-hover);
+}
+
+.secondary-button {
+  border: 1px solid var(--border);
+  background: var(--surface);
+}
+
+.secondary-button:hover {
+  background: var(--surface-muted);
+}
+
+@media (max-width: 540px) {
+  .start-screen {
+    padding: 18px;
+  }
+
+  .start-card {
+    padding: 28px 22px;
+  }
+
+  .start-actions {
+    flex-direction: column;
+  }
+}
