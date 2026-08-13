@@ -1,7 +1,7 @@
 {
   "name": "reqvault",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Локальный desktop-клиент для REST API с YAML-workspace и системным хранилищем секретов",
   "license": "Apache-2.0",
   "repository": {
@@ -20,7 +20,8 @@
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit -p tsconfig.json --pretty false && tsc --noEmit -p tsconfig.node.json --pretty false",
     "preview": "vite preview",
-    "tauri": "tauri"
+    "tauri": "tauri",
+    "sign:windows": "powershell -ExecutionPolicy Bypass -File scripts/sign-windows.ps1"
   },
   "dependencies": {
     "@tauri-apps/api": "^2",
