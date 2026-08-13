@@ -1,4 +1,4 @@
-import { invoke } from "@tauri-apps/api/core";
+import { Channel, invoke } from "@tauri-apps/api/core";
 import type {
   EnvironmentFile,
   EnvironmentSummary,
@@ -16,6 +16,8 @@ import type {
   WorkspaceConfig,
   CollectionRunOptions,
   CollectionRunReport,
+  StreamConnectConfig,
+  StreamEvent,
 } from "./types";
 
 export function createWorkspace(path: string): Promise<WorkspaceSnapshot> {
@@ -80,6 +82,23 @@ export function runCollection(
   options: CollectionRunOptions,
 ): Promise<CollectionRunReport> {
   return invoke("run_collection", { workspacePath, options });
+}
+
+export async function connectStream(
+  config: StreamConnectConfig,
+  onEvent: (event: StreamEvent) => void,
+): Promise<{ sessionId: string; channel: Channel<StreamEvent> }> {
+  const channel = new Channel<StreamEvent>(onEvent);
+  const sessionId = await invoke<string>("connect_stream", { config, events: channel });
+  return { sessionId, channel };
+}
+
+export function sendStreamMessage(sessionId: string, message: string): Promise<void> {
+  return invoke("send_stream_message", { sessionId, message });
+}
+
+export function disconnectStream(sessionId: string): Promise<void> {
+  return invoke("disconnect_stream", { sessionId });
 }
 
 export function getHistorySettings(workspaceId: string): Promise<HistorySettings> {

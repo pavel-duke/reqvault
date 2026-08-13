@@ -40,6 +40,7 @@ import { SecretDialog } from "./components/SecretDialog";
 import { Sidebar } from "./components/Sidebar";
 import { StartScreen } from "./components/StartScreen";
 import { WorkspaceSettingsDialog } from "./components/WorkspaceSettingsDialog";
+import { StreamDialog } from "./components/StreamDialog";
 import { collectionFromPath, emptyRequest } from "./request-utils";
 import type { CollectionRunOptions, CollectionRunReport, EnvironmentFile, HistorySettings, HistorySummary, HttpError, HttpResponse, RequestFile, RequestSummary, SecurityReport, Theme, WorkspaceConfig, WorkspaceSnapshot } from "./types";
 import "./App.css";
@@ -83,6 +84,7 @@ function App() {
   const [runnerBusy, setRunnerBusy] = useState(false);
   const [runnerError, setRunnerError] = useState<string | null>(null);
   const [runnerReport, setRunnerReport] = useState<CollectionRunReport | null>(null);
+  const [streamOpen, setStreamOpen] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [historySettings, setHistorySettings] = useState<HistorySettings>({ enabled: false, max_entries: 50 });
   const [historyEntries, setHistoryEntries] = useState<HistorySummary[]>([]);
@@ -509,6 +511,7 @@ function App() {
             onSettings={() => { setSettingsError(null); setSettingsOpen(true); }}
             onHistory={() => void openHistory()}
             onRun={() => { setRunnerError(null); setRunnerReport(null); setRunnerOpen(true); }}
+            onStream={() => setStreamOpen(true)}
             onClose={closeWorkspace}
           />
           <div className="main-panel">
@@ -547,6 +550,10 @@ function App() {
 
       {workspace && runnerOpen && (
         <CollectionRunnerDialog workspace={workspace} activeEnvironment={activeEnvironment} busy={runnerBusy} error={runnerError} report={runnerReport} onRun={(options) => void runWorkspaceCollection(options)} onClose={() => setRunnerOpen(false)} />
+      )}
+
+      {workspace && streamOpen && (
+        <StreamDialog workspace={workspace} activeEnvironment={activeEnvironment} onClose={() => setStreamOpen(false)} />
       )}
     </main>
   );

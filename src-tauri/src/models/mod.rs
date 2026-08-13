@@ -5,6 +5,7 @@ mod request;
 mod response;
 mod runner;
 mod security;
+mod stream;
 mod workspace;
 
 pub use oauth::OAuthResult;
@@ -16,6 +17,7 @@ pub use runner::{
     AssertionResult, CollectionRunOptions, CollectionRunReport, RequestRunResult, ResponseAssertion,
 };
 pub use security::SecurityReport;
+pub use stream::{StreamConnectConfig, StreamEvent};
 pub use workspace::{
     EnvironmentSummary, ProductionGuard, RequestSummary, WorkspaceConfig, WorkspaceSnapshot,
 };

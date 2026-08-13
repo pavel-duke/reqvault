@@ -10,12 +10,14 @@ mod redaction;
 mod runner;
 mod secrets;
 mod security;
+mod stream;
 mod variables;
 mod workspace;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .manage(stream::StreamState::default())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_clipboard_manager::init())
         .invoke_handler(tauri::generate_handler![
@@ -45,6 +47,9 @@ pub fn run() {
             commands::secrets::delete_secret,
             commands::security::inspect_request,
             commands::security::generate_safe_curl,
+            commands::stream::connect_stream,
+            commands::stream::send_stream_message,
+            commands::stream::disconnect_stream,
         ])
         .run(tauri::generate_context!())
         .expect("не удалось запустить ReqVault");

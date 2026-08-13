@@ -209,4 +209,20 @@ export type CollectionRunOptions = {
   stop_on_failure: boolean;
 };
 
+export type StreamConnectConfig = {
+  protocol: "websocket" | "sse";
+  url: string;
+  headers: Record<string, string>;
+  workspace_id: string;
+  workspace_path: string;
+  environment: EnvironmentFile | null;
+};
+
+export type StreamEvent = {
+  session_id: string;
+  kind: string;
+  timestamp_ms: number;
+  data: string;
+};
+
 export type Theme = "light" | "dark";

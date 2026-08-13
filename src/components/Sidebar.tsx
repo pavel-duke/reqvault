@@ -15,6 +15,7 @@ type Props = {
   onSettings: () => void;
   onHistory: () => void;
   onRun: () => void;
+  onStream: () => void;
   onClose: () => void;
 };
 
@@ -47,6 +48,7 @@ export function Sidebar({
   onSettings,
   onHistory,
   onRun,
+  onStream,
   onClose,
 }: Props) {
   const groups = groupedRequests(workspace.requests);
@@ -90,6 +92,7 @@ export function Sidebar({
         <button className="secondary-button" type="button" onClick={onExport}>Экспорт</button>
         <button className="secondary-button" type="button" onClick={onHistory}>История</button>
         <button className="secondary-button" type="button" onClick={onRun}>Запуск</button>
+        <button className="secondary-button" type="button" onClick={onStream}>Потоки</button>
         <button className="secondary-button guard-button" type="button" onClick={onSettings}>
           Защита{workspace.config.production_guard.enabled ? " •" : ""}
         </button>
