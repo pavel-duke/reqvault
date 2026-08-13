@@ -385,4 +385,29 @@ mod tests {
         assert!(matches!(error, WorkspaceError::MissingConfig));
         fs::remove_dir_all(path).unwrap();
     }
+
+    #[test]
+    fn never_writes_secret_values_to_yaml() {
+        const TEST_SECRET: &str = "REQVAULT_TEST_SECRET_DO_NOT_LEAK_123456";
+        let path = temp_workspace();
+        create(&path, None).unwrap();
+        let request = RequestFile {
+            url: "https://api.example.test".to_string(),
+            auth: crate::models::AuthConfig::Bearer {
+                token: "{{secret:API_TOKEN}}".to_string(),
+            },
+            ..RequestFile::default()
+        };
+        save_request(&path, None, None, &request).unwrap();
+
+        let yaml = fs::read_to_string(
+            path.join("requests")
+                .join("общее")
+                .join("новый-запрос.yaml"),
+        )
+        .unwrap();
+        assert!(yaml.contains("{{secret:API_TOKEN}}"));
+        assert!(!yaml.contains(TEST_SECRET));
+        fs::remove_dir_all(path).unwrap();
+    }
 }

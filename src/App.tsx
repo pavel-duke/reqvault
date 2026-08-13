@@ -3,16 +3,20 @@ import { open } from "@tauri-apps/plugin-dialog";
 import {
   createWorkspace,
   errorMessage,
+  listSecrets,
   openWorkspace,
   removeEnvironment,
   removeRequest,
+  removeSecret,
   saveEnvironment,
   sendHttpRequest,
   saveRequest,
+  saveSecret,
 } from "./api";
 import { EnvironmentDialog } from "./components/EnvironmentDialog";
 import { RequestEditor } from "./components/RequestEditor";
 import { ResponseViewer } from "./components/ResponseViewer";
+import { SecretDialog } from "./components/SecretDialog";
 import { Sidebar } from "./components/Sidebar";
 import { StartScreen } from "./components/StartScreen";
 import { collectionFromPath, emptyRequest } from "./request-utils";
@@ -41,6 +45,10 @@ function App() {
   const [response, setResponse] = useState<HttpResponse | null>(null);
   const [httpError, setHttpError] = useState<HttpError | null>(null);
   const [sending, setSending] = useState(false);
+  const [secretsOpen, setSecretsOpen] = useState(false);
+  const [secretNames, setSecretNames] = useState<string[]>([]);
+  const [secretError, setSecretError] = useState<string | null>(null);
+  const [secretBusy, setSecretBusy] = useState(false);
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
@@ -108,7 +116,7 @@ function App() {
     setSending(true);
     setHttpError(null);
     try {
-      setResponse(await sendHttpRequest(draft, environment));
+      setResponse(await sendHttpRequest(draft, environment, workspace.config.id));
     } catch (caught) {
       setResponse(null);
       if (caught && typeof caught === "object" && "message" in caught) {
@@ -118,6 +126,48 @@ function App() {
       }
     } finally {
       setSending(false);
+    }
+  }
+
+  async function openSecrets() {
+    if (!workspace) return;
+    setSecretsOpen(true);
+    setSecretBusy(true);
+    setSecretError(null);
+    try {
+      setSecretNames(await listSecrets(workspace.config.id));
+    } catch (caught) {
+      setSecretError(errorMessage(caught));
+    } finally {
+      setSecretBusy(false);
+    }
+  }
+
+  async function persistSecret(name: string, value: string): Promise<boolean> {
+    if (!workspace) return false;
+    setSecretBusy(true);
+    setSecretError(null);
+    try {
+      setSecretNames(await saveSecret(workspace.config.id, name, value));
+      return true;
+    } catch (caught) {
+      setSecretError(errorMessage(caught));
+      return false;
+    } finally {
+      setSecretBusy(false);
+    }
+  }
+
+  async function deleteSavedSecret(name: string) {
+    if (!workspace || !window.confirm(`Удалить секрет ${name}?`)) return;
+    setSecretBusy(true);
+    setSecretError(null);
+    try {
+      setSecretNames(await removeSecret(workspace.config.id, name));
+    } catch (caught) {
+      setSecretError(errorMessage(caught));
+    } finally {
+      setSecretBusy(false);
     }
   }
 
@@ -212,6 +262,7 @@ function App() {
             onNewRequest={newRequest}
             onEnvironmentChange={setActiveEnvironment}
             onEditEnvironments={() => { setEnvironmentError(null); setEnvironmentsOpen(true); }}
+            onEditSecrets={() => void openSecrets()}
             onClose={closeWorkspace}
           />
           <div className="main-panel">
@@ -229,6 +280,10 @@ function App() {
 
       {workspace && environmentsOpen && (
         <EnvironmentDialog environments={workspace.environments} activePath={activeEnvironment} busy={busy} error={environmentError} onSave={(path, environment) => void persistEnvironment(path, environment)} onDelete={(path) => void deleteSelectedEnvironment(path)} onClose={() => setEnvironmentsOpen(false)} />
+      )}
+
+      {workspace && secretsOpen && (
+        <SecretDialog names={secretNames} loading={secretBusy} error={secretError} onSave={persistSecret} onDelete={(name) => void deleteSavedSecret(name)} onClose={() => setSecretsOpen(false)} />
       )}
     </main>
   );

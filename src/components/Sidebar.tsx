@@ -8,6 +8,7 @@ type Props = {
   onNewRequest: () => void;
   onEnvironmentChange: (path: string) => void;
   onEditEnvironments: () => void;
+  onEditSecrets: () => void;
   onClose: () => void;
 };
 
@@ -33,6 +34,7 @@ export function Sidebar({
   onNewRequest,
   onEnvironmentChange,
   onEditEnvironments,
+  onEditSecrets,
   onClose,
 }: Props) {
   const groups = groupedRequests(workspace.requests);
@@ -64,6 +66,11 @@ export function Sidebar({
           <button className="quiet-icon" type="button" onClick={onEditEnvironments} title="Изменить окружения" aria-label="Изменить окружения">•••</button>
         </div>
       </div>
+
+      <button className="vault-button" type="button" onClick={onEditSecrets}>
+        <span aria-hidden="true">▣</span>
+        <span><strong>Секреты</strong><small>Системное хранилище ОС</small></span>
+      </button>
 
       <div className="sidebar-section-heading">
         <span>Запросы</span>

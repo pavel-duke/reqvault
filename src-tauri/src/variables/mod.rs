@@ -19,6 +19,8 @@ pub enum ResolveError {
     MissingVariable(String),
     #[error("Секрет {0} не найден в системном хранилище")]
     MissingSecret(String),
+    #[error("Системное хранилище секретов недоступно")]
+    SecretStorage,
 }
 
 pub fn resolve_variables(

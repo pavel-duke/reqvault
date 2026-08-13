@@ -307,7 +307,8 @@ fn request_error(
     }
 }
 
-pub fn unavailable_secret(name: &str) -> Result<String, ResolveError> {
+#[cfg(test)]
+fn unavailable_secret(name: &str) -> Result<String, ResolveError> {
     Err(ResolveError::MissingSecret(name.to_string()))
 }
 

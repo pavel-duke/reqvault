@@ -16,12 +16,25 @@ export function createWorkspace(path: string): Promise<WorkspaceSnapshot> {
 export async function sendHttpRequest(
   request: RequestFile,
   environment: EnvironmentFile | null,
+  workspaceId: string,
 ): Promise<HttpResponse> {
   try {
-    return await invoke("send_request", { request, environment });
+    return await invoke("send_request", { request, environment, workspaceId });
   } catch (error) {
     throw error as HttpError;
   }
+}
+
+export function listSecrets(workspaceId: string): Promise<string[]> {
+  return invoke("list_secrets", { workspaceId });
+}
+
+export function saveSecret(workspaceId: string, name: string, value: string): Promise<string[]> {
+  return invoke("save_secret", { workspaceId, name, value });
+}
+
+export function removeSecret(workspaceId: string, name: string): Promise<string[]> {
+  return invoke("delete_secret", { workspaceId, name });
 }
 
 export function openWorkspace(path: string): Promise<WorkspaceSnapshot> {

@@ -2,6 +2,7 @@ mod commands;
 mod http;
 mod models;
 mod redaction;
+mod secrets;
 mod variables;
 mod workspace;
 
@@ -18,6 +19,9 @@ pub fn run() {
             commands::workspace::save_environment,
             commands::workspace::delete_environment,
             commands::http::send_request,
+            commands::secrets::list_secrets,
+            commands::secrets::save_secret,
+            commands::secrets::delete_secret,
         ])
         .run(tauri::generate_context!())
         .expect("не удалось запустить ReqVault");
