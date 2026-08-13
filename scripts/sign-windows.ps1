@@ -15,13 +15,13 @@ try {
         Where-Object { $_.Thumbprint -eq $CertificateThumbprint } |
         Select-Object -First 1
     if (-not $certificate) {
-        throw 'Сертификат с таким thumbprint не найден в Windows Certificate Store.'
+        throw 'The certificate thumbprint was not found in Windows Certificate Store.'
     }
     if (-not $certificate.HasPrivateKey) {
-        throw 'У сертификата нет доступного приватного ключа.'
+        throw 'The certificate does not have an accessible private key.'
     }
     if ($certificate.NotAfter -le (Get-Date)) {
-        throw 'Срок действия сертификата закончился.'
+        throw 'The certificate has expired.'
     }
 
     $config = @{
@@ -39,7 +39,7 @@ try {
     try {
         npm run tauri build -- --config $temporaryConfig
         if ($LASTEXITCODE -ne 0) {
-            throw "Tauri build завершился с кодом $LASTEXITCODE."
+            throw "Tauri build failed with exit code $LASTEXITCODE."
         }
     }
     finally {
@@ -51,7 +51,7 @@ try {
         Sort-Object FullName -Descending |
         Select-Object -First 1
     if (-not $signTool) {
-        throw 'SignTool не найден. Установите Windows SDK.'
+        throw 'SignTool was not found. Install Windows SDK.'
     }
 
     $artifacts = @(
@@ -61,11 +61,11 @@ try {
     )
     foreach ($artifact in $artifacts) {
         if (-not (Test-Path -LiteralPath $artifact)) {
-            throw "Артефакт не найден: $artifact"
+            throw "Artifact was not found: $artifact"
         }
         & $signTool.FullName verify /pa /v $artifact
         if ($LASTEXITCODE -ne 0) {
-            throw "Проверка подписи не прошла: $artifact"
+            throw "Signature verification failed: $artifact"
         }
     }
 }
