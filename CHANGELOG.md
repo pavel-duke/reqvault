@@ -2,6 +2,21 @@
 
 Формат основан на [Keep a Changelog](https://keepachangelog.com/ru/1.1.0/), версия проекта следует [Semantic Versioning](https://semver.org/lang/ru/).
 
+## [0.6.0] — 2026-08-13
+
+### Добавлено
+
+- WebSocket-клиент с подключением, отправкой текста и корректным закрытием;
+- Server-Sent Events с именованными и многострочными событиями;
+- заголовки, переменные окружения и Secret Vault для потоковых соединений;
+- журнал последних 1000 событий с фильтром;
+- проверка потокового URL по правилам Production Guard.
+
+### Безопасность
+
+- значения секретов маскируются в сообщениях и сетевых ошибках до передачи во frontend;
+- потоковые сообщения не сохраняются на диск автоматически.
+
 ## [0.5.0] — 2026-08-13
 
 ### Добавлено
@@ -85,3 +100,4 @@
 [0.3.0]: https://github.com/pavel-duke/reqvault/releases/tag/v0.3.0
 [0.4.0]: https://github.com/pavel-duke/reqvault/releases/tag/v0.4.0
 [0.5.0]: https://github.com/pavel-duke/reqvault/releases/tag/v0.5.0
+[0.6.0]: https://github.com/pavel-duke/reqvault/releases/tag/v0.6.0

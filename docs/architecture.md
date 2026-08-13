@@ -14,6 +14,7 @@ Tauri commands
   ├─ guard ─────── правила отправки workspace
   ├─ history ──── локальные очищенные ответы
   ├─ runner ───── assertions и запуск коллекций
+  ├─ stream ───── WebSocket и SSE-сессии
   ├─ secrets ──── хранилище учётных данных ОС
   └─ security ─── анализ запроса и безопасный cURL
 ```
@@ -41,6 +42,7 @@ Frontend не читает workspace напрямую и не получает �
 - `guard/` — проверка HTTPS, хоста, метода и секретов в URL перед отправкой;
 - `history/` — opt-in история очищенных ответов вне workspace;
 - `runner/` — последовательное выполнение запросов и проверка ответов;
+- `stream/` — долгоживущие WebSocket/SSE-сессии, команды отправки и очистка событий;
 - `cli/` — разбор аргументов, консольный вывод и JSON-отчёт;
 - `secrets/` — работа с Windows Credential Manager, macOS Keychain или Linux Secret Service;
 - `security/` — Security Lens и генерация cURL;
