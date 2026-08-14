@@ -20,7 +20,7 @@ jobs:
         working-directory: src-tauri
     steps:
       - name: Получить код
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
       - name: Установить зависимости Tauri в Linux
         if: runner.os == 'Linux'
         working-directory: .
