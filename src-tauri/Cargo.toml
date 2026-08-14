@@ -41,7 +41,7 @@ tokio = { version = "1", features = ["io-util", "macros", "net", "rt-multi-threa
 futures-util = "0.3"
 tokio-tungstenite = { version = "0.28", features = ["rustls-tls-webpki-roots"] }
 cookie = "0.18"
-hmac = "0.12"
+hmac = "0.13"
 md-5 = "0.10"
 time = { version = "0.3", features = ["formatting", "macros"] }
 zeroize = { version = "1", features = ["derive"] }
