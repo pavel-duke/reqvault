@@ -18,4 +18,4 @@
 
 Не прикладывайте настоящие токены, пароли, cookie или содержимое чужих workspace. Получение ответа может занять до 7 дней. Срок исправления зависит от серьёзности и сложности проблемы.
 
-Границы защиты и принятые решения описаны в [`docs/threat-model.md`](docs/threat-model.md).
+Границы защиты и принятые решения описаны в [`docs/threat-model.md`](docs/threat-model.md). Проверки зависимостей, CodeQL, SBOM, хэши и attestations описаны в [`docs/supply-chain.md`](docs/supply-chain.md).

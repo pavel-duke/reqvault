@@ -10,6 +10,11 @@ permissions:
 
 jobs:
   bundle:
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+      artifact-metadata: write
     strategy:
       fail-fast: false
       matrix:
@@ -25,13 +30,13 @@ jobs:
             artifact: linux
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: Install Linux dependencies
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
           sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential curl wget file libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         with:
           node-version: 24
           cache: npm
@@ -42,7 +47,32 @@ jobs:
       - run: npm ci
       - name: Build desktop bundles
         run: npm run tauri build -- --bundles ${{ matrix.bundles }}
-      - uses: actions/upload-artifact@v4
+      - name: Calculate SHA-256 hashes
+        shell: pwsh
+        run: |
+          $bundleRoot = Join-Path $PWD "src-tauri/target/release/bundle"
+          $hashFile = Join-Path $bundleRoot "SHA256SUMS-${{ matrix.artifact }}.txt"
+          $lines = Get-ChildItem -Path $bundleRoot -Recurse -File |
+            Where-Object { $_.Extension -in ".msi", ".exe", ".dmg", ".deb", ".AppImage" } |
+            Sort-Object FullName |
+            ForEach-Object {
+              $relative = [IO.Path]::GetRelativePath($bundleRoot, $_.FullName).Replace("\", "/")
+              $hash = (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+              "$hash *$relative"
+            }
+          if (-not $lines) { throw "No desktop bundles found for hashing" }
+          $lines | Set-Content -LiteralPath $hashFile -Encoding utf8NoBOM
+      - name: Attest desktop bundles
+        uses: actions/attest@v4
+        with:
+          subject-path: |
+            src-tauri/target/release/bundle/**/*.msi
+            src-tauri/target/release/bundle/**/*.exe
+            src-tauri/target/release/bundle/**/*.dmg
+            src-tauri/target/release/bundle/**/*.deb
+            src-tauri/target/release/bundle/**/*.AppImage
+            src-tauri/target/release/bundle/SHA256SUMS-*.txt
+      - uses: actions/upload-artifact@v7
         with:
           name: reqvault-${{ matrix.artifact }}-${{ github.ref_name }}
           path: |
@@ -51,4 +81,25 @@ jobs:
             src-tauri/target/release/bundle/**/*.dmg
             src-tauri/target/release/bundle/**/*.deb
             src-tauri/target/release/bundle/**/*.AppImage
+            src-tauri/target/release/bundle/SHA256SUMS-*.txt
+          if-no-files-found: error
+
+  sbom:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v6
+      - name: Generate source SBOM
+        uses: anchore/sbom-action@v0
+        with:
+          path: .
+          format: spdx-json
+          output-file: reqvault-${{ github.ref_name }}.spdx.json
+          upload-artifact: false
+          upload-release-assets: false
+      - uses: actions/upload-artifact@v7
+        with:
+          name: reqvault-sbom-${{ github.ref_name }}
+          path: reqvault-${{ github.ref_name }}.spdx.json
           if-no-files-found: error
