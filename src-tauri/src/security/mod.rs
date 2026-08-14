@@ -1,8 +1,9 @@
-use std::collections::BTreeMap;
+use std::{collections::BTreeMap, fs};
 
 use url::Url;
 
 use crate::{
+    guard,
     models::{
         AuthConfig, BodyConfig, EnvironmentFile, MultipartField, ProxyConfig, RequestFile,
         SecurityReport,
@@ -131,6 +132,30 @@ pub fn analyze(request: &RequestFile, environment: Option<&EnvironmentFile>) -> 
                 .to_string(),
         );
     }
+    if let Some(risk) = parsed.as_ref().and_then(guard::network_risk) {
+        warnings.push(format!(
+            "Адрес относится к локальной или служебной сети: {risk}. Включённый Production Guard потребует явного разрешения."
+        ));
+    }
+    let has_sensitive_headers = !matches!(
+        request.auth,
+        AuthConfig::None | AuthConfig::ApiKeyQuery { .. }
+    ) || request
+        .headers
+        .iter()
+        .any(|(name, value)| is_sensitive_header(name) || value.contains("{{secret:"));
+    if request.follow_redirects && has_sensitive_headers {
+        warnings.push(
+            "При смене схемы, хоста или порта ReqVault удалит credential-заголовки перед редиректом. Production Guard может заблокировать такой переход."
+                .to_string(),
+        );
+    }
+    if unencrypted_private_key(&request.transport.client_key_path) {
+        warnings.push(
+            "mTLS использует незашифрованный приватный PEM-ключ. Ограничь доступ к файлу и не добавляй его в workspace или Git."
+                .to_string(),
+        );
+    }
 
     SecurityReport {
         https,
@@ -140,6 +165,23 @@ pub fn analyze(request: &RequestFile, environment: Option<&EnvironmentFile>) -> 
         in_query,
         warnings,
     }
+}
+
+fn unencrypted_private_key(path: &str) -> bool {
+    if path.trim().is_empty() || path.contains("{{") {
+        return false;
+    }
+    fs::read_to_string(path).is_ok_and(|pem| {
+        !pem.contains("BEGIN ENCRYPTED PRIVATE KEY")
+            && [
+                "BEGIN PRIVATE KEY",
+                "BEGIN RSA PRIVATE KEY",
+                "BEGIN EC PRIVATE KEY",
+                "BEGIN OPENSSH PRIVATE KEY",
+            ]
+            .iter()
+            .any(|marker| pem.contains(marker))
+    })
 }
 
 pub fn curl(
@@ -451,7 +493,8 @@ mod tests {
         assert_eq!(report.secrets, 2);
         assert_eq!(report.in_headers, 1);
         assert_eq!(report.in_query, 1);
-        assert_eq!(report.warnings.len(), 2);
+        assert_eq!(report.warnings.len(), 3);
+        assert!(report.warnings.iter().any(|item| item.contains("редирект")));
     }
 
     #[test]
@@ -460,7 +503,30 @@ mod tests {
             url: "http://127.0.0.1:3000".to_string(),
             ..RequestFile::default()
         };
-        assert!(analyze(&request, None).warnings.is_empty());
+        let warnings = analyze(&request, None).warnings;
+        assert_eq!(warnings.len(), 1);
+        assert!(warnings[0].contains("локальной или служебной сети"));
+    }
+
+    #[test]
+    fn warns_about_unencrypted_mtls_key_without_exposing_its_path_or_content() {
+        let path = std::env::temp_dir().join(format!("reqvault-key-{}.pem", uuid::Uuid::new_v4()));
+        fs::write(
+            &path,
+            "-----BEGIN PRIVATE KEY-----\nTEST_PRIVATE_MATERIAL\n-----END PRIVATE KEY-----",
+        )
+        .unwrap();
+        let mut request = RequestFile {
+            url: "https://api.example.test".to_string(),
+            ..RequestFile::default()
+        };
+        request.transport.client_key_path = path.to_string_lossy().into_owned();
+        let report = analyze(&request, None);
+        let visible = report.warnings.join(" ");
+        assert!(visible.contains("незашифрованный"));
+        assert!(!visible.contains("TEST_PRIVATE_MATERIAL"));
+        assert!(!visible.contains(path.to_string_lossy().as_ref()));
+        fs::remove_file(path).unwrap();
     }
 
     #[test]

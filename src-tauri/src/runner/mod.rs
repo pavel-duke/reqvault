@@ -87,6 +87,7 @@ async fn run_request(
                 })
             },
             Some(cookie_jar),
+            Some(production_guard),
         )
         .await
     };

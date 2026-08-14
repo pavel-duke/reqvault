@@ -43,6 +43,7 @@ cookie = "0.18"
 hmac = "0.12"
 md-5 = "0.10"
 time = { version = "0.3", features = ["formatting", "macros"] }
+zeroize = { version = "1", features = ["derive"] }
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.61", features = ["Win32_Storage_FileSystem"] }

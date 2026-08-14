@@ -22,6 +22,10 @@ pub struct ProductionGuard {
     pub blocked_methods: Vec<String>,
     #[serde(default = "enabled_by_default")]
     pub block_secrets_in_url: bool,
+    #[serde(default = "enabled_by_default")]
+    pub block_private_networks: bool,
+    #[serde(default = "enabled_by_default")]
+    pub block_cross_origin_redirects: bool,
 }
 
 impl Default for ProductionGuard {
@@ -32,6 +36,8 @@ impl Default for ProductionGuard {
             allowed_hosts: Vec::new(),
             blocked_methods: vec!["DELETE".to_string()],
             block_secrets_in_url: true,
+            block_private_networks: true,
+            block_cross_origin_redirects: true,
         }
     }
 }

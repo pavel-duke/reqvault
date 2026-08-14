@@ -99,6 +99,8 @@ export type ProductionGuard = {
   allowed_hosts: string[];
   blocked_methods: string[];
   block_secrets_in_url: boolean;
+  block_private_networks: boolean;
+  block_cross_origin_redirects: boolean;
 };
 
 export type WorkspaceConfig = {

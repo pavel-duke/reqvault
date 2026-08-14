@@ -6,28 +6,35 @@ use hmac::{Hmac, Mac};
 use md5::Md5;
 use reqwest::{
     Certificate, Client, Identity, Method, Proxy,
-    header::{AUTHORIZATION, CONTENT_TYPE, HeaderMap, HeaderName, HeaderValue, WWW_AUTHENTICATE},
+    header::{
+        AUTHORIZATION, CONTENT_LENGTH, CONTENT_TYPE, COOKIE, HeaderMap, HeaderName, HeaderValue,
+        LOCATION, WWW_AUTHENTICATE,
+    },
     redirect::Policy,
 };
 use sha2::{Digest, Sha256};
 use time::{OffsetDateTime, macros::format_description};
 use url::Url;
 use uuid::Uuid;
+use zeroize::{Zeroize, ZeroizeOnDrop, Zeroizing};
 
 use crate::{
+    guard,
     models::{
-        AuthConfig, BodyConfig, EnvironmentFile, HttpError, HttpResponse, ProxyConfig, RequestFile,
-        ResponseHeader,
+        AuthConfig, BodyConfig, EnvironmentFile, HttpError, HttpResponse, ProductionGuard,
+        ProxyConfig, RequestFile, ResponseHeader,
     },
-    redaction::{redact_header, redact_text},
+    redaction::{is_sensitive_header, redact_header, redact_text},
     session::CookieJar,
-    variables::{ResolveError, is_exact_secret_reference, resolve_secrets, resolve_variables},
+    variables::{
+        ResolveError, is_exact_secret_reference, resolve_secrets, resolve_variables, secret_names,
+    },
 };
 
 const ALLOWED_METHODS: &[&str] = &["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"];
 const MAX_RESPONSE_BODY_BYTES: usize = 8 * 1024 * 1024;
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 struct PreparedRequest {
     method: Method,
     url: Url,
@@ -35,12 +42,21 @@ struct PreparedRequest {
     body: BodyConfig,
     timeout: Duration,
     follow_redirects: bool,
-    secret_values: Vec<String>,
+    secret_values: Zeroizing<Vec<String>>,
     transport: PreparedTransport,
     auth: PreparedAuth,
 }
 
-#[derive(Debug, Clone)]
+impl Drop for PreparedRequest {
+    fn drop(&mut self) {
+        zeroize_body(&mut self.body);
+        self.headers.clear();
+        self.url.set_query(None);
+        self.url.set_fragment(None);
+    }
+}
+
+#[derive(Clone, Zeroize, ZeroizeOnDrop)]
 enum PreparedAuth {
     None,
     Digest {
@@ -56,14 +72,14 @@ enum PreparedAuth {
     },
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone, Zeroize, ZeroizeOnDrop)]
 struct PreparedTransport {
     proxy: PreparedProxy,
     custom_ca: Option<Vec<u8>>,
     identity: Option<Vec<u8>>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone, Zeroize, ZeroizeOnDrop)]
 enum PreparedProxy {
     None,
     System,
@@ -72,6 +88,55 @@ enum PreparedProxy {
         username: String,
         password: String,
     },
+}
+
+fn zeroize_body(body: &mut BodyConfig) {
+    match body {
+        BodyConfig::None => {}
+        BodyConfig::Json { value } => value.zeroize(),
+        BodyConfig::Graphql {
+            query,
+            variables,
+            operation_name,
+        } => {
+            query.zeroize();
+            variables.zeroize();
+            operation_name.zeroize();
+        }
+        BodyConfig::Raw {
+            value,
+            content_type,
+        } => {
+            value.zeroize();
+            content_type.zeroize();
+        }
+        BodyConfig::FormUrlencoded { fields } => {
+            for field in fields {
+                field.name.zeroize();
+                field.value.zeroize();
+            }
+        }
+        BodyConfig::Multipart { fields } => {
+            for field in fields {
+                match field {
+                    crate::models::MultipartField::Text { name, value, .. } => {
+                        name.zeroize();
+                        value.zeroize();
+                    }
+                    crate::models::MultipartField::File {
+                        name,
+                        path,
+                        content_type,
+                        ..
+                    } => {
+                        name.zeroize();
+                        path.zeroize();
+                        content_type.zeroize();
+                    }
+                }
+            }
+        }
+    }
 }
 
 #[cfg(test)]
@@ -83,7 +148,7 @@ async fn send<F>(
 where
     F: FnMut(&str) -> Result<String, ResolveError>,
 {
-    send_with_session(request, environment, resolve_secret, None).await
+    send_with_session(request, environment, resolve_secret, None, None).await
 }
 
 pub async fn send_with_session<F>(
@@ -91,12 +156,13 @@ pub async fn send_with_session<F>(
     environment: Option<&EnvironmentFile>,
     resolve_secret: &mut F,
     cookie_jar: Option<&CookieJar>,
+    production_guard: Option<&ProductionGuard>,
 ) -> Result<HttpResponse, HttpError>
 where
     F: FnMut(&str) -> Result<String, ResolveError>,
 {
     let prepared = prepare(request, environment, resolve_secret).map_err(resolve_error)?;
-    execute(prepared, cookie_jar).await
+    execute(prepared, cookie_jar, production_guard).await
 }
 
 fn prepare<F>(
@@ -112,7 +178,7 @@ where
         .map(|environment| &environment.variables)
         .cloned()
         .unwrap_or_default();
-    let mut secret_values = Vec::new();
+    let mut secret_values = Zeroizing::new(Vec::new());
     let mut resolve = |value: &str| -> Result<String, PrepareError> {
         let variables_resolved = resolve_variables(value, &variables)?;
         Ok(resolve_secrets(
@@ -150,29 +216,35 @@ where
 
     let mut headers = HeaderMap::new();
     for (name, value) in &request.headers {
+        let contains_secret = !secret_names(name).is_empty() || !secret_names(value).is_empty();
         let resolved_name = resolve(name)?;
         let resolved_value = resolve(value)?;
         let header_name = HeaderName::from_bytes(resolved_name.as_bytes())
             .map_err(|_| PrepareError::InvalidHeaderName(resolved_name.clone()))?;
-        let header_value = HeaderValue::from_str(&resolved_value)
+        let mut header_value = HeaderValue::from_str(&resolved_value)
             .map_err(|_| PrepareError::InvalidHeaderValue(resolved_name.clone()))?;
+        if contains_secret || is_sensitive_header(header_name.as_str()) {
+            header_value.set_sensitive(true);
+        }
         headers.insert(header_name, header_value);
     }
 
     let prepared_auth = match &request.auth {
         AuthConfig::None | AuthConfig::ApiKeyQuery { .. } => PreparedAuth::None,
         AuthConfig::Bearer { token } => {
-            let value = HeaderValue::from_str(&format!("Bearer {}", resolve(token)?))
+            let mut value = HeaderValue::from_str(&format!("Bearer {}", resolve(token)?))
                 .map_err(|_| PrepareError::InvalidHeaderValue("Authorization".to_string()))?;
+            value.set_sensitive(true);
             headers.insert(reqwest::header::AUTHORIZATION, value);
             PreparedAuth::None
         }
         AuthConfig::Basic { username, password } => {
             use base64::{Engine as _, engine::general_purpose::STANDARD};
             let credentials = format!("{}:{}", resolve(username)?, resolve(password)?);
-            let value =
+            let mut value =
                 HeaderValue::from_str(&format!("Basic {}", STANDARD.encode(credentials)))
                     .map_err(|_| PrepareError::InvalidHeaderValue("Authorization".to_string()))?;
+            value.set_sensitive(true);
             headers.insert(reqwest::header::AUTHORIZATION, value);
             PreparedAuth::None
         }
@@ -184,14 +256,16 @@ where
             let resolved_name = resolve(name)?;
             let header_name = HeaderName::from_bytes(resolved_name.as_bytes())
                 .map_err(|_| PrepareError::InvalidHeaderName(resolved_name.clone()))?;
-            let header_value = HeaderValue::from_str(&resolve(value)?)
+            let mut header_value = HeaderValue::from_str(&resolve(value)?)
                 .map_err(|_| PrepareError::InvalidHeaderValue(resolved_name))?;
+            header_value.set_sensitive(true);
             headers.insert(header_name, header_value);
             PreparedAuth::None
         }
         AuthConfig::OAuth2 { access_token, .. } => {
-            let value = HeaderValue::from_str(&format!("Bearer {}", resolve(access_token)?))
+            let mut value = HeaderValue::from_str(&format!("Bearer {}", resolve(access_token)?))
                 .map_err(|_| PrepareError::InvalidHeaderValue("Authorization".to_string()))?;
+            value.set_sensitive(true);
             headers.insert(reqwest::header::AUTHORIZATION, value);
             PreparedAuth::None
         }
@@ -399,22 +473,11 @@ fn read_optional_pem(path: &str, purpose: &'static str) -> Result<Option<Vec<u8>
 async fn execute(
     mut prepared: PreparedRequest,
     cookie_jar: Option<&CookieJar>,
+    production_guard: Option<&ProductionGuard>,
 ) -> Result<HttpResponse, HttpError> {
     let request_id = Uuid::new_v4().to_string();
-    let host = prepared.url.host_str().unwrap_or("сервер").to_string();
-    let request_url = prepared.url.clone();
-    if !prepared.headers.contains_key(reqwest::header::COOKIE)
-        && let Some(cookie) = cookie_jar.and_then(|jar| jar.request_header(&request_url))
-        && let Ok(value) = HeaderValue::from_str(&cookie)
-    {
-        prepared.headers.insert(reqwest::header::COOKIE, value);
-    }
     let mut client_builder = Client::builder()
-        .redirect(if prepared.follow_redirects {
-            Policy::limited(10)
-        } else {
-            Policy::none()
-        })
+        .redirect(Policy::none())
         .timeout(prepared.timeout);
     client_builder = match &prepared.transport.proxy {
         PreparedProxy::None => client_builder.no_proxy(),
@@ -469,115 +532,87 @@ async fn execute(
         )
     })?;
 
-    if matches!(prepared.auth, PreparedAuth::AwsSigV4 { .. }) {
-        sign_aws_request(&mut prepared, OffsetDateTime::now_utc())?;
-    }
-
-    let mut builder = client
-        .request(prepared.method.clone(), prepared.url.clone())
-        .headers(prepared.headers.clone());
-    builder = match &prepared.body {
-        BodyConfig::None => builder,
-        BodyConfig::Json { value } => builder
-            .header(CONTENT_TYPE, "application/json")
-            .body(value.clone()),
-        BodyConfig::Graphql {
-            query,
-            variables,
-            operation_name,
-        } => {
-            let variables = serde_json::from_str::<serde_json::Value>(variables)
-                .unwrap_or_else(|_| serde_json::json!({}));
-            let mut payload = serde_json::Map::from_iter([
-                (
-                    "query".to_string(),
-                    serde_json::Value::String(query.clone()),
-                ),
-                ("variables".to_string(), variables),
-            ]);
-            if !operation_name.trim().is_empty() {
-                payload.insert(
-                    "operationName".to_string(),
-                    serde_json::Value::String(operation_name.clone()),
-                );
-            }
-            builder.json(&serde_json::Value::Object(payload))
-        }
-        BodyConfig::Raw {
-            value,
-            content_type,
-        } => {
-            if content_type.trim().is_empty() {
-                builder.body(value.clone())
-            } else {
-                builder
-                    .header(CONTENT_TYPE, content_type)
-                    .body(value.clone())
-            }
-        }
-        BodyConfig::FormUrlencoded { fields } => {
-            let form = fields
-                .iter()
-                .map(|field| (field.name.clone(), field.value.clone()))
-                .collect::<Vec<_>>();
-            builder.form(&form)
-        }
-        BodyConfig::Multipart { fields } => {
-            let mut form = reqwest::multipart::Form::new();
-            for field in fields {
-                match field {
-                    crate::models::MultipartField::Text { name, value, .. } => {
-                        form = form.text(name.clone(), value.clone());
-                    }
-                    crate::models::MultipartField::File {
-                        name,
-                        path,
-                        content_type,
-                        ..
-                    } => {
-                        let bytes = fs::read(path).map_err(|error| HttpError {
-                            message: format!("Не удалось прочитать файл для поля {name}"),
-                            details: Some(redact_text(&error.to_string(), &prepared.secret_values)),
-                            error_type: "multipart".to_string(),
-                        })?;
-                        let file_name = std::path::Path::new(path)
-                            .file_name()
-                            .and_then(|value| value.to_str())
-                            .unwrap_or("file")
-                            .to_string();
-                        let mut part = reqwest::multipart::Part::bytes(bytes).file_name(file_name);
-                        if !content_type.trim().is_empty() {
-                            part = part.mime_str(content_type).map_err(|error| HttpError {
-                                message: format!("Некорректный Content-Type для поля {name}"),
-                                details: Some(redact_text(
-                                    &error.to_string(),
-                                    &prepared.secret_values,
-                                )),
-                                error_type: "multipart".to_string(),
-                            })?;
-                        }
-                        form = form.part(name.clone(), part);
-                    }
-                }
-            }
-            builder.multipart(form)
-        }
-    };
-
     let started = std::time::Instant::now();
-    let response = builder.send().await.map_err(|error| {
-        let (message, error_type) = if error.is_connect() {
-            (format!("Не удалось подключиться к {host}"), "connection")
-        } else if error.is_timeout() {
-            (
-                format!("Сервер {host} не ответил за отведённое время"),
-                "timeout",
-            )
-        } else {
-            ("Не удалось выполнить HTTP-запрос".to_string(), "request")
+    let mut current_url = prepared.url.clone();
+    let mut current_method = prepared.method.clone();
+    let mut current_headers = prepared.headers.clone();
+    let mut current_body = prepared.body.clone();
+    let mut explicit_cookie = current_headers.contains_key(COOKIE);
+    let mut redirect_count = 0_u8;
+    let response = loop {
+        if let Some(guard) = production_guard {
+            guard::validate_resolved_target(&current_url, guard)
+                .await
+                .map_err(redirect_guard_error)?;
+        }
+        if matches!(prepared.auth, PreparedAuth::AwsSigV4 { .. }) {
+            prepared.url = current_url.clone();
+            prepared.method = current_method.clone();
+            prepared.headers = current_headers;
+            prepared.body = current_body.clone();
+            sign_aws_request(&mut prepared, OffsetDateTime::now_utc())?;
+            current_headers = prepared.headers.clone();
+        }
+        if !current_headers.contains_key(COOKIE)
+            && let Some(cookie) = cookie_jar.and_then(|jar| jar.request_header(&current_url))
+            && let Ok(mut value) = HeaderValue::from_str(&cookie)
+        {
+            value.set_sensitive(true);
+            current_headers.insert(COOKIE, value);
+        }
+        let response = send_prepared(
+            &client,
+            &current_method,
+            &current_url,
+            &current_headers,
+            &current_body,
+            &prepared.secret_values,
+        )
+        .await?;
+        store_response_cookies(cookie_jar, &current_url, &response);
+        if !prepared.follow_redirects || !is_redirect_status(response.status()) {
+            break response;
+        }
+        let Some(location) = response.headers().get(LOCATION) else {
+            break response;
         };
-        request_error(&message, error, &prepared.secret_values, error_type)
-    })?;
+        let location = location
+            .to_str()
+            .map_err(|_| redirect_error("Сервер вернул некорректный адрес редиректа"))?;
+        if redirect_count >= 10 {
+            return Err(redirect_error("Превышен лимит из 10 редиректов"));
+        }
+        let next_url = current_url
+            .join(location)
+            .map_err(|_| redirect_error("Сервер вернул некорректный адрес редиректа"))?;
+        if !matches!(next_url.scheme(), "http" | "https") {
+            return Err(redirect_error("Редирект использует неподдерживаемую схему"));
+        }
+        if let Some(guard) = production_guard {
+            guard::validate_redirect(&current_url, &next_url, guard)
+                .map_err(redirect_guard_error)?;
+        }
+        let cross_origin = !guard::same_origin(&current_url, &next_url);
+        if cross_origin && matches!(prepared.auth, PreparedAuth::AwsSigV4 { .. }) {
+            return Err(redirect_error(
+                "Междоменный редирект для AWS SigV4 заблокирован: запрос нужно подписать для нового адреса",
+            ));
+        }
+        if cross_origin {
+            remove_sensitive_headers(&mut current_headers);
+            explicit_cookie = false;
+        } else if !explicit_cookie {
+            current_headers.remove(COOKIE);
+        }
+        if redirect_switches_to_get(response.status(), &current_method) {
+            current_method = Method::GET;
+            current_body = BodyConfig::None;
+            current_headers.remove(CONTENT_TYPE);
+            current_headers.remove(CONTENT_LENGTH);
+        }
+        current_url = next_url;
+        redirect_count += 1;
+    };
     if response.status() == reqwest::StatusCode::UNAUTHORIZED
         && let PreparedAuth::Digest { username, password } = &prepared.auth
         && let Some(challenge) = response.headers().get(WWW_AUTHENTICATE)
@@ -586,38 +621,22 @@ async fn execute(
             .split_once(' ')
             .is_some_and(|(scheme, _)| scheme.eq_ignore_ascii_case("digest"))
     {
-        if let Some(jar) = cookie_jar {
-            for header in response.headers().get_all(reqwest::header::SET_COOKIE) {
-                if let Ok(value) = header.to_str() {
-                    jar.store(&request_url, value);
-                }
-            }
-        }
-        let authorization = digest_authorization(
-            challenge,
-            &prepared.method,
-            &prepared.url,
-            username,
-            password,
-        )?;
+        let authorization =
+            digest_authorization(challenge, &current_method, &current_url, username, password)?;
         let challenge_duration = started.elapsed().as_millis();
         let mut retry = prepared.clone();
         retry.auth = PreparedAuth::None;
-        retry.headers.insert(
-            AUTHORIZATION,
-            HeaderValue::from_str(&authorization)
-                .map_err(|_| auth_error("Некорректный Digest Authorization"))?,
-        );
-        let mut result = Box::pin(execute(retry, cookie_jar)).await?;
+        retry.method = current_method;
+        retry.url = current_url;
+        retry.body = current_body;
+        retry.headers = current_headers;
+        let mut authorization = HeaderValue::from_str(&authorization)
+            .map_err(|_| auth_error("Некорректный Digest Authorization"))?;
+        authorization.set_sensitive(true);
+        retry.headers.insert(AUTHORIZATION, authorization);
+        let mut result = Box::pin(execute(retry, cookie_jar, production_guard)).await?;
         result.duration_ms += challenge_duration;
         return Ok(result);
-    }
-    if let Some(jar) = cookie_jar {
-        for header in response.headers().get_all(reqwest::header::SET_COOKIE) {
-            if let Ok(value) = header.to_str() {
-                jar.store(&request_url, value);
-            }
-        }
     }
     let duration_ms = started.elapsed().as_millis();
     let status = response.status();
@@ -682,6 +701,163 @@ async fn execute(
         body_kind,
         truncated,
     })
+}
+
+async fn send_prepared(
+    client: &Client,
+    method: &Method,
+    url: &Url,
+    headers: &HeaderMap,
+    body: &BodyConfig,
+    secrets: &[String],
+) -> Result<reqwest::Response, HttpError> {
+    let mut builder = client
+        .request(method.clone(), url.clone())
+        .headers(headers.clone());
+    builder = match body {
+        BodyConfig::None => builder,
+        BodyConfig::Json { value } => builder
+            .header(CONTENT_TYPE, "application/json")
+            .body(value.clone()),
+        BodyConfig::Graphql {
+            query,
+            variables,
+            operation_name,
+        } => {
+            let variables = serde_json::from_str::<serde_json::Value>(variables)
+                .unwrap_or_else(|_| serde_json::json!({}));
+            let mut payload = serde_json::Map::from_iter([
+                (
+                    "query".to_string(),
+                    serde_json::Value::String(query.clone()),
+                ),
+                ("variables".to_string(), variables),
+            ]);
+            if !operation_name.trim().is_empty() {
+                payload.insert(
+                    "operationName".to_string(),
+                    serde_json::Value::String(operation_name.clone()),
+                );
+            }
+            builder.json(&serde_json::Value::Object(payload))
+        }
+        BodyConfig::Raw {
+            value,
+            content_type,
+        } => {
+            if content_type.trim().is_empty() {
+                builder.body(value.clone())
+            } else {
+                builder
+                    .header(CONTENT_TYPE, content_type)
+                    .body(value.clone())
+            }
+        }
+        BodyConfig::FormUrlencoded { fields } => {
+            let form = fields
+                .iter()
+                .map(|field| (field.name.clone(), field.value.clone()))
+                .collect::<Vec<_>>();
+            builder.form(&form)
+        }
+        BodyConfig::Multipart { fields } => {
+            let mut form = reqwest::multipart::Form::new();
+            for field in fields {
+                match field {
+                    crate::models::MultipartField::Text { name, value, .. } => {
+                        form = form.text(name.clone(), value.clone());
+                    }
+                    crate::models::MultipartField::File {
+                        name,
+                        path,
+                        content_type,
+                        ..
+                    } => {
+                        let bytes = fs::read(path).map_err(|error| HttpError {
+                            message: format!("Не удалось прочитать файл для поля {name}"),
+                            details: Some(redact_text(&error.to_string(), secrets)),
+                            error_type: "multipart".to_string(),
+                        })?;
+                        let file_name = std::path::Path::new(path)
+                            .file_name()
+                            .and_then(|value| value.to_str())
+                            .unwrap_or("file")
+                            .to_string();
+                        let mut part = reqwest::multipart::Part::bytes(bytes).file_name(file_name);
+                        if !content_type.trim().is_empty() {
+                            part = part.mime_str(content_type).map_err(|error| HttpError {
+                                message: format!("Некорректный Content-Type для поля {name}"),
+                                details: Some(redact_text(&error.to_string(), secrets)),
+                                error_type: "multipart".to_string(),
+                            })?;
+                        }
+                        form = form.part(name.clone(), part);
+                    }
+                }
+            }
+            builder.multipart(form)
+        }
+    };
+    let host = url.host_str().unwrap_or("сервер");
+    builder.send().await.map_err(|error| {
+        let (message, error_type) = if error.is_connect() {
+            (format!("Не удалось подключиться к {host}"), "connection")
+        } else if error.is_timeout() {
+            (
+                format!("Сервер {host} не ответил за отведённое время"),
+                "timeout",
+            )
+        } else {
+            ("Не удалось выполнить HTTP-запрос".to_string(), "request")
+        };
+        request_error(&message, error, secrets, error_type)
+    })
+}
+
+fn store_response_cookies(cookie_jar: Option<&CookieJar>, url: &Url, response: &reqwest::Response) {
+    if let Some(jar) = cookie_jar {
+        for header in response.headers().get_all(reqwest::header::SET_COOKIE) {
+            if let Ok(value) = header.to_str() {
+                jar.store(url, value);
+            }
+        }
+    }
+}
+
+fn is_redirect_status(status: reqwest::StatusCode) -> bool {
+    matches!(status.as_u16(), 301 | 302 | 303 | 307 | 308)
+}
+
+fn redirect_switches_to_get(status: reqwest::StatusCode, method: &Method) -> bool {
+    (status == reqwest::StatusCode::SEE_OTHER && *method != Method::HEAD)
+        || matches!(status.as_u16(), 301 | 302) && *method == Method::POST
+}
+
+fn remove_sensitive_headers(headers: &mut HeaderMap) {
+    let names = headers
+        .iter()
+        .filter(|(name, value)| value.is_sensitive() || is_sensitive_header(name.as_str()))
+        .map(|(name, _)| name.clone())
+        .collect::<Vec<_>>();
+    for name in names {
+        headers.remove(name);
+    }
+}
+
+fn redirect_error(message: &str) -> HttpError {
+    HttpError {
+        message: message.to_string(),
+        details: None,
+        error_type: "redirect".to_string(),
+    }
+}
+
+fn redirect_guard_error(message: String) -> HttpError {
+    HttpError {
+        message,
+        details: None,
+        error_type: "production_guard".to_string(),
+    }
 }
 
 fn response_body(content_type: &str, bytes: &[u8], secrets: &[String]) -> (String, String, bool) {
@@ -888,11 +1064,12 @@ fn sign_aws_request(prepared: &mut PreparedRequest, now: OffsetDateTime) -> Resu
             .map_err(|_| auth_error("Некорректный хеш AWS SigV4"))?,
     );
     if !session_token.is_empty() {
-        prepared.headers.insert(
-            HeaderName::from_static("x-amz-security-token"),
-            HeaderValue::from_str(session_token)
-                .map_err(|_| auth_error("Некорректный AWS session token"))?,
-        );
+        let mut value = HeaderValue::from_str(session_token)
+            .map_err(|_| auth_error("Некорректный AWS session token"))?;
+        value.set_sensitive(true);
+        prepared
+            .headers
+            .insert(HeaderName::from_static("x-amz-security-token"), value);
     }
 
     let mut signed_headers = vec!["host", "x-amz-content-sha256", "x-amz-date"];
@@ -942,11 +1119,10 @@ fn sign_aws_request(prepared: &mut PreparedRequest, now: OffsetDateTime) -> Resu
     let authorization = format!(
         "AWS4-HMAC-SHA256 Credential={access_key}/{scope}, SignedHeaders={signed_headers_value}, Signature={signature}"
     );
-    prepared.headers.insert(
-        AUTHORIZATION,
-        HeaderValue::from_str(&authorization)
-            .map_err(|_| auth_error("Некорректная подпись AWS SigV4"))?,
-    );
+    let mut authorization = HeaderValue::from_str(&authorization)
+        .map_err(|_| auth_error("Некорректная подпись AWS SigV4"))?;
+    authorization.set_sensitive(true);
+    prepared.headers.insert(AUTHORIZATION, authorization);
     Ok(())
 }
 
@@ -1243,6 +1419,68 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn strips_credentials_when_redirect_changes_port() {
+        const TEST_SECRET: &str = "REQVAULT_REDIRECT_SECRET_DO_NOT_LEAK_123456";
+        let target_listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let target_address = target_listener.local_addr().unwrap();
+        let target_received = tokio::spawn(async move {
+            let (mut socket, _) = target_listener.accept().await.unwrap();
+            let mut buffer = vec![0; 8192];
+            let read = socket.read(&mut buffer).await.unwrap();
+            socket
+                .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n")
+                .await
+                .unwrap();
+            String::from_utf8_lossy(&buffer[..read]).into_owned()
+        });
+
+        let source_listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let source_address = source_listener.local_addr().unwrap();
+        let source_received = tokio::spawn(async move {
+            let (mut socket, _) = source_listener.accept().await.unwrap();
+            let mut buffer = vec![0; 8192];
+            let read = socket.read(&mut buffer).await.unwrap();
+            let response = format!(
+                "HTTP/1.1 302 Found\r\nLocation: http://{target_address}/final\r\nContent-Length: 0\r\n\r\n"
+            );
+            socket.write_all(response.as_bytes()).await.unwrap();
+            String::from_utf8_lossy(&buffer[..read]).into_owned()
+        });
+
+        let mut request = RequestFile {
+            url: format!("http://{source_address}/start"),
+            auth: AuthConfig::Bearer {
+                token: "{{secret:API_TOKEN}}".to_string(),
+            },
+            ..RequestFile::default()
+        };
+        request.headers.insert(
+            "X-Customer-Token".to_string(),
+            "{{secret:API_TOKEN}}".to_string(),
+        );
+        request
+            .headers
+            .insert("Cookie".to_string(), "session=private".to_string());
+        request
+            .headers
+            .insert("X-Public-Trace".to_string(), "trace-42".to_string());
+        let result = send(&request, None, &mut |_| Ok(TEST_SECRET.to_string()))
+            .await
+            .unwrap();
+        let source = source_received.await.unwrap().to_ascii_lowercase();
+        let target = target_received.await.unwrap().to_ascii_lowercase();
+        assert_eq!(result.status, 200);
+        assert!(source.contains("authorization: bearer"));
+        assert!(source.contains("x-customer-token:"));
+        assert!(source.contains("cookie: session=private"));
+        assert!(!target.contains("authorization:"));
+        assert!(!target.contains("x-customer-token:"));
+        assert!(!target.contains("cookie:"));
+        assert!(!target.contains(&TEST_SECRET.to_ascii_lowercase()));
+        assert!(target.contains("x-public-trace: trace-42"));
+    }
+
+    #[tokio::test]
     async fn returns_http_error_status_as_response() {
         for status in ["404 Not Found", "500 Internal Server Error"] {
             let response = format!("HTTP/1.1 {status}\r\nContent-Length: 0\r\n\r\n");
@@ -1504,10 +1742,10 @@ mod tests {
             url: format!("http://{address}/account"),
             ..RequestFile::default()
         };
-        send_with_session(&request, None, &mut unavailable_secret, Some(&jar))
+        send_with_session(&request, None, &mut unavailable_secret, Some(&jar), None)
             .await
             .unwrap();
-        send_with_session(&request, None, &mut unavailable_secret, Some(&jar))
+        send_with_session(&request, None, &mut unavailable_secret, Some(&jar), None)
             .await
             .unwrap();
         let raw = received.await.unwrap();

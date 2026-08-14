@@ -15,6 +15,8 @@ const workspace: WorkspaceSnapshot = {
       allowed_hosts: [],
       blocked_methods: ["DELETE"],
       block_secrets_in_url: true,
+      block_private_networks: true,
+      block_cross_origin_redirects: true,
     },
   },
   requests: [],

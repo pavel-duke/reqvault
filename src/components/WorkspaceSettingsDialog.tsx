@@ -35,10 +35,12 @@ export function WorkspaceSettingsDialog({ config, busy, error, onSave, onClose }
         <div className="guard-grid" aria-disabled={!guard.enabled}>
           <label className="check-field"><input type="checkbox" checked={guard.require_https} disabled={!guard.enabled} onChange={(event) => patchGuard({ require_https: event.currentTarget.checked })} /> Только HTTPS</label>
           <label className="check-field"><input type="checkbox" checked={guard.block_secrets_in_url} disabled={!guard.enabled} onChange={(event) => patchGuard({ block_secrets_in_url: event.currentTarget.checked })} /> Запретить секреты в URL</label>
+          <label className="check-field"><input type="checkbox" checked={guard.block_private_networks} disabled={!guard.enabled} onChange={(event) => patchGuard({ block_private_networks: event.currentTarget.checked })} /> Блокировать локальные и служебные адреса</label>
+          <label className="check-field"><input type="checkbox" checked={guard.block_cross_origin_redirects} disabled={!guard.enabled} onChange={(event) => patchGuard({ block_cross_origin_redirects: event.currentTarget.checked })} /> Блокировать неожиданные междоменные редиректы</label>
           <label className="field">
             <span>Разрешённые хосты</span>
             <textarea value={guard.allowed_hosts.join("\n")} disabled={!guard.enabled} onChange={(event) => patchGuard({ allowed_hosts: event.currentTarget.value.split(/\r?\n|,/).map((value) => value.trim()).filter(Boolean) })} placeholder={'api.example.com\n*.service.example.com'} />
-            <small>Один хост в строке. Поддерживается маска <code>*.example.com</code>. Пустой список разрешает любой хост.</small>
+            <small>Один хост в строке. Поддерживается маска <code>*.example.com</code>. Явно добавленный хост разрешает локальный адрес и междоменный редирект.</small>
           </label>
           <label className="field">
             <span>Заблокированные методы</span>

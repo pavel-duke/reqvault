@@ -9,6 +9,9 @@ const SENSITIVE_HEADERS: &[&str] = &[
     "set-cookie",
     "x-api-key",
     "api-key",
+    "x-auth-token",
+    "x-access-token",
+    "x-amz-security-token",
 ];
 
 fn bearer_pattern() -> &'static Regex {
@@ -17,9 +20,15 @@ fn bearer_pattern() -> &'static Regex {
 }
 
 pub fn is_sensitive_header(name: &str) -> bool {
+    let normalized = name.trim().to_ascii_lowercase();
     SENSITIVE_HEADERS
         .iter()
-        .any(|sensitive| name.eq_ignore_ascii_case(sensitive))
+        .any(|sensitive| normalized == *sensitive)
+        || normalized.ends_with("-token")
+        || normalized.contains("api-key")
+        || normalized.contains("apikey")
+        || normalized.contains("credential")
+        || normalized.contains("secret")
 }
 
 pub fn redact_header(name: &str, value: &str, secrets: &[String]) -> String {
@@ -62,6 +71,8 @@ mod tests {
         assert_eq!(value, "Bearer ********");
         assert!(!value.contains(TEST_SECRET));
         assert_eq!(redact_header("Cookie", "session=abc", &[]), "********");
+        assert!(is_sensitive_header("X-Customer-Access-Token"));
+        assert!(is_sensitive_header("X-Service-Credential"));
     }
 
     #[test]

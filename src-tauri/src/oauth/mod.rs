@@ -11,6 +11,7 @@ use tokio::{
 };
 use url::Url;
 use uuid::Uuid;
+use zeroize::{Zeroize, ZeroizeOnDrop, Zeroizing};
 
 use crate::{
     models::{AuthConfig, EnvironmentFile, OAuthResult},
@@ -21,7 +22,7 @@ use crate::{
 
 const OAUTH_TIMEOUT: Duration = Duration::from_secs(180);
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Zeroize, ZeroizeOnDrop)]
 struct TokenResponse {
     access_token: String,
     #[serde(default)]
@@ -54,7 +55,7 @@ pub async fn authorize(
     let variables = environment
         .map(|item| item.variables.clone())
         .unwrap_or_default();
-    let mut used_secrets = Vec::new();
+    let mut used_secrets = Zeroizing::new(Vec::new());
     let mut resolve = |value: &str| -> Result<String, String> {
         let with_variables =
             resolve_variables(value, &variables).map_err(|error| error.to_string())?;
@@ -94,7 +95,7 @@ pub async fn authorize(
         .build()
         .map_err(|_| "Не удалось подготовить OAuth-клиент".to_string())?;
 
-    let token = match grant_type.as_str() {
+    let mut token = match grant_type.as_str() {
         "authorization_code_pkce" => {
             let authorization_url = resolve(authorization_url)?;
             validate_endpoint(&authorization_url, "Authorization URL")?;
@@ -127,8 +128,9 @@ pub async fn authorize(
 
     secrets::save(backend, &access_secret_name, &token.access_token)
         .map_err(|error| error.to_string())?;
-    let saved_refresh = match (refresh_secret_name, token.refresh_token) {
+    let saved_refresh = match (refresh_secret_name, token.refresh_token.take()) {
         (Some(name), Some(value)) => {
+            let value = Zeroizing::new(value);
             secrets::save(backend, &name, &value).map_err(|error| error.to_string())?;
             Some(name)
         }
@@ -139,7 +141,7 @@ pub async fn authorize(
         access_token_secret: access_secret_name,
         refresh_token_secret: saved_refresh,
         expires_in: token.expires_in,
-        scope: token.scope,
+        scope: token.scope.take(),
     })
 }
 
@@ -170,7 +172,7 @@ pub async fn refresh(
     let variables = environment
         .map(|item| item.variables.clone())
         .unwrap_or_default();
-    let mut used_secrets = Vec::new();
+    let mut used_secrets = Zeroizing::new(Vec::new());
     let mut resolve = |value: &str| -> Result<String, String> {
         let with_variables =
             resolve_variables(value, &variables).map_err(|error| error.to_string())?;
@@ -212,10 +214,11 @@ pub async fn refresh(
         .timeout(Duration::from_secs(60))
         .build()
         .map_err(|_| "Не удалось подготовить OAuth-клиент".to_string())?;
-    let token = exchange_token(&client, &token_url, &form, &used_secrets).await?;
+    let mut token = exchange_token(&client, &token_url, &form, &used_secrets).await?;
     secrets::save(backend, &access_secret_name, &token.access_token)
         .map_err(|error| error.to_string())?;
-    if let Some(value) = token.refresh_token {
+    if let Some(value) = token.refresh_token.take() {
+        let value = Zeroizing::new(value);
         secrets::save(backend, &refresh_secret_name, &value).map_err(|error| error.to_string())?;
     }
 
@@ -223,7 +226,7 @@ pub async fn refresh(
         access_token_secret: access_secret_name,
         refresh_token_secret: Some(refresh_secret_name),
         expires_in: token.expires_in,
-        scope: token.scope,
+        scope: token.scope.take(),
     })
 }
 

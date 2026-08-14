@@ -54,6 +54,7 @@ pub async fn send_request(
             })
         },
         Some(&cookie_jar),
+        Some(&config.production_guard),
     )
     .await?;
     if response.status == 401
@@ -72,6 +73,7 @@ pub async fn send_request(
                 })
             },
             Some(&cookie_jar),
+            Some(&config.production_guard),
         )
         .await?;
     }
