@@ -71,3 +71,15 @@ pub struct WorkspaceSnapshot {
     pub requests: Vec<RequestSummary>,
     pub environments: Vec<EnvironmentSummary>,
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct RequestPathChange {
+    pub from: String,
+    pub to: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct RequestBatchResult {
+    pub workspace: WorkspaceSnapshot,
+    pub changes: Vec<RequestPathChange>,
+}

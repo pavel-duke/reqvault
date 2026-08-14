@@ -117,6 +117,16 @@ export type WorkspaceSnapshot = {
   environments: EnvironmentSummary[];
 };
 
+export type RequestPathChange = {
+  from: string;
+  to: string;
+};
+
+export type RequestBatchResult = {
+  workspace: WorkspaceSnapshot;
+  changes: RequestPathChange[];
+};
+
 export type ResponseHeader = {
   name: string;
   value: string;

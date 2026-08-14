@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import type { EnvironmentSummary, RequestSummary, WorkspaceSnapshot } from "../types";
 import { Icon } from "./Icon";
+import { VirtualRequestTree, type VirtualRequestRow } from "./VirtualRequestTree";
 
 type Props = {
   workspace: WorkspaceSnapshot;
@@ -11,6 +12,7 @@ type Props = {
   onSelectRequest: (summary: RequestSummary) => void;
   onToggleFavorite: (path: string) => void;
   onNewRequest: () => void;
+  onManageRequests: () => void;
   onEnvironmentChange: (path: string) => void;
   onEditEnvironments: () => void;
   onEditSecrets: () => void;
@@ -40,6 +42,7 @@ export function Sidebar({
   onSelectRequest,
   onToggleFavorite,
   onNewRequest,
+  onManageRequests,
   onEnvironmentChange,
   onEditEnvironments,
   onEditSecrets,
@@ -68,6 +71,20 @@ export function Sidebar({
     .map((path) => byPath.get(path))
     .filter((item): item is RequestSummary => Boolean(item))
     .slice(0, 5);
+  const virtualRows: VirtualRequestRow[] = [];
+  if (!search && favorites.length > 0) {
+    virtualRows.push({ kind: "group", key: "heading:favorites", label: "Избранное", icon: "star" });
+    favorites.forEach((summary) => virtualRows.push({ kind: "request", key: `favorite:${summary.relative_path}`, summary, favorite: true }));
+  }
+  if (!search && recent.length > 0) {
+    virtualRows.push({ kind: "group", key: "heading:recent", label: "Недавние", icon: "clock" });
+    recent.forEach((summary) => virtualRows.push({ kind: "request", key: `recent:${summary.relative_path}`, summary, favorite: false }));
+  }
+  groups.forEach(([group, requests]) => {
+    virtualRows.push({ kind: "group", key: `heading:group:${group}`, label: group });
+    requests.forEach((summary) => virtualRows.push({ kind: "request", key: `group:${summary.relative_path}`, summary, favorite: favoritePaths.includes(summary.relative_path) }));
+  });
+  const virtualized = virtualRows.length > 200;
 
   const requestRow = (summary: RequestSummary) => {
     const favorite = favoritePaths.includes(summary.relative_path);
@@ -129,7 +146,10 @@ export function Sidebar({
 
       <div className="sidebar-section-heading">
         <span>Коллекции <b>{workspace.requests.length}</b></span>
-        <button className="quiet-icon" type="button" data-shortcut="new-request" aria-keyshortcuts="Alt+N" onClick={onNewRequest} title="Новый запрос (Alt+N)" aria-label="Новый запрос">+</button>
+        <div className="sidebar-heading-actions">
+          <button className="quiet-icon" type="button" onClick={onManageRequests} title="Управление запросами" aria-label="Управление запросами"><Icon name="archive" /></button>
+          <button className="quiet-icon" type="button" data-shortcut="new-request" aria-keyshortcuts="Alt+N" onClick={onNewRequest} title="Новый запрос (Alt+N)" aria-label="Новый запрос">+</button>
+        </div>
       </div>
 
       <label className="sidebar-search">
@@ -139,7 +159,9 @@ export function Sidebar({
       </label>
       {matchingEnvironments.length > 0 && <div className="environment-results"><small>Окружения</small>{matchingEnvironments.map((environment) => <button type="button" key={environment.relative_path} onClick={() => onEnvironmentChange(environment.relative_path)}>{environmentLabel(environment)}</button>)}</div>}
 
-      <nav className="request-tree" aria-label="Запросы workspace">
+      {virtualized ? (
+        <VirtualRequestTree rows={virtualRows} selectedPath={selectedPath} onSelectRequest={onSelectRequest} onToggleFavorite={onToggleFavorite} />
+      ) : <nav className="request-tree" aria-label="Запросы workspace">
         {groups.length === 0 && (
           <div className="sidebar-empty">
             <p>{search ? "Запросы не найдены" : "Здесь пока пусто"}</p>
@@ -154,7 +176,7 @@ export function Sidebar({
             {requests.map(requestRow)}
           </div>
         ))}
-      </nav>
+      </nav>}
     </aside>
   );
 }

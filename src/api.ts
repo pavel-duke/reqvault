@@ -9,6 +9,7 @@ import type {
   HistorySummary,
   ImportResult,
   OAuthResult,
+  RequestBatchResult,
   RequestFile,
   RequestSummary,
   SecurityReport,
@@ -233,6 +234,30 @@ export function removeRequest(
   relativePath: string,
 ): Promise<void> {
   return invoke("delete_request", { workspacePath, relativePath });
+}
+
+export function moveRequests(
+  workspacePath: string,
+  relativePaths: string[],
+  collection: string,
+): Promise<RequestBatchResult> {
+  return invoke("move_requests", { workspacePath, relativePaths, collection });
+}
+
+export function duplicateRequests(
+  workspacePath: string,
+  relativePaths: string[],
+  collection: string,
+): Promise<RequestBatchResult> {
+  return invoke("duplicate_requests", { workspacePath, relativePaths, collection });
+}
+
+export function renameRequest(
+  workspacePath: string,
+  relativePath: string,
+  name: string,
+): Promise<WorkspaceSnapshot> {
+  return invoke("rename_request", { workspacePath, relativePath, name });
 }
 
 export function saveEnvironment(

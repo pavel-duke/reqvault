@@ -1,4 +1,5 @@
 use std::{
+    collections::HashSet,
     fs,
     path::{Component, Path, PathBuf},
 };
@@ -48,6 +49,14 @@ pub enum WorkspaceError {
     UnsupportedFormat(u32),
     #[error("Недопустимый путь внутри workspace")]
     InvalidRelativePath,
+    #[error("Выбери хотя бы один запрос")]
+    EmptySelection,
+    #[error("Один запрос выбран несколько раз")]
+    DuplicateSelection,
+    #[error("Запрос не найден: {0}")]
+    RequestNotFound(String),
+    #[error("Название запроса не может быть пустым")]
+    EmptyRequestName,
     #[error("Не удалось прочитать {path}: {message}")]
     Read { path: String, message: String },
     #[error("Не удалось записать {path}: {message}")]
@@ -323,6 +332,120 @@ pub fn delete_request(root: &Path, relative_path: &str) -> Result<(), WorkspaceE
     Ok(())
 }
 
+pub fn move_requests(
+    root: &Path,
+    relative_paths: &[String],
+    collection: &str,
+) -> Result<Vec<crate::models::RequestPathChange>, WorkspaceError> {
+    ensure_workspace(root)?;
+    let selected = load_selected_requests(root, relative_paths)?;
+    let destination = PathBuf::from("requests").join(safe_name(collection, "common"));
+    let mut reserved = HashSet::new();
+    let mut changes = Vec::with_capacity(selected.len());
+
+    for (source, request) in &selected {
+        let target = if source.parent() == Some(destination.as_path()) {
+            source.clone()
+        } else {
+            unique_request_path_in(root, &destination, &request.name, &reserved)
+        };
+        reserved.insert(target.clone());
+        changes.push(crate::models::RequestPathChange {
+            from: path_to_slashes(source),
+            to: path_to_slashes(&target),
+        });
+    }
+
+    let mut completed: Vec<(PathBuf, PathBuf)> = Vec::new();
+    for change in &changes {
+        if change.from == change.to {
+            continue;
+        }
+        let source = root.join(validate_relative_file(&change.from, "requests")?);
+        let target = root.join(validate_relative_file(&change.to, "requests")?);
+        if let Some(parent) = target.parent() {
+            fs::create_dir_all(parent).map_err(|error| write_error(parent, error))?;
+        }
+        if let Err(error) = fs::rename(&source, &target) {
+            let mut rollback_errors = Vec::new();
+            for (previous_source, previous_target) in completed.iter().rev() {
+                if let Err(rollback_error) = fs::rename(previous_target, previous_source) {
+                    rollback_errors.push(rollback_error.to_string());
+                }
+            }
+            let suffix = if rollback_errors.is_empty() {
+                String::new()
+            } else {
+                format!("; откат не завершён: {}", rollback_errors.join(", "))
+            };
+            return Err(WorkspaceError::Write {
+                path: target.display().to_string(),
+                message: format!("{error}{suffix}"),
+            });
+        }
+        completed.push((source, target));
+    }
+
+    Ok(changes)
+}
+
+pub fn duplicate_requests(
+    root: &Path,
+    relative_paths: &[String],
+    collection: &str,
+) -> Result<Vec<crate::models::RequestPathChange>, WorkspaceError> {
+    ensure_workspace(root)?;
+    let selected = load_selected_requests(root, relative_paths)?;
+    let destination = PathBuf::from("requests").join(safe_name(collection, "common"));
+    let mut reserved = HashSet::new();
+    let mut created = Vec::new();
+    let mut changes = Vec::with_capacity(selected.len());
+
+    for (source, request) in selected {
+        let target = unique_request_path_in(root, &destination, &request.name, &reserved);
+        reserved.insert(target.clone());
+        if let Err(error) = write_yaml(&root.join(&target), &request) {
+            for path in created.iter().rev() {
+                let _ = fs::remove_file(root.join(path));
+            }
+            return Err(error);
+        }
+        created.push(target.clone());
+        changes.push(crate::models::RequestPathChange {
+            from: path_to_slashes(&source),
+            to: path_to_slashes(&target),
+        });
+    }
+
+    Ok(changes)
+}
+
+pub fn rename_request(
+    root: &Path,
+    relative_path: &str,
+    name: &str,
+) -> Result<RequestSummary, WorkspaceError> {
+    ensure_workspace(root)?;
+    let trimmed = name.trim();
+    if trimmed.is_empty() {
+        return Err(WorkspaceError::EmptyRequestName);
+    }
+    let relative = validate_relative_file(relative_path, "requests")?;
+    let full_path = root.join(&relative);
+    if !full_path.is_file() {
+        return Err(WorkspaceError::RequestNotFound(relative_path.to_string()));
+    }
+    let mut request: RequestFile = read_yaml(&full_path)?;
+    ensure_format(request.format_version)?;
+    validate_credentials(&request)?;
+    request.name = trimmed.to_string();
+    write_yaml(&full_path, &request)?;
+    Ok(RequestSummary {
+        relative_path: path_to_slashes(&relative),
+        request,
+    })
+}
+
 pub fn save_environment(
     root: &Path,
     relative_path: Option<&str>,
@@ -372,15 +495,50 @@ fn ensure_format(version: u32) -> Result<(), WorkspaceError> {
 
 fn unique_request_path(root: &Path, collection: Option<&str>, name: &str) -> PathBuf {
     let folder = safe_name(collection.unwrap_or("Общее"), "common");
-    let stem = safe_name(name, "request");
     let base = PathBuf::from("requests").join(folder);
+    unique_request_path_in(root, &base, name, &HashSet::new())
+}
+
+fn unique_request_path_in(
+    root: &Path,
+    base: &Path,
+    name: &str,
+    reserved: &HashSet<PathBuf>,
+) -> PathBuf {
+    let stem = safe_name(name, "request");
     let mut candidate = base.join(format!("{stem}.yaml"));
     let mut suffix = 2;
-    while root.join(&candidate).exists() {
+    while root.join(&candidate).exists() || reserved.contains(&candidate) {
         candidate = base.join(format!("{stem}-{suffix}.yaml"));
         suffix += 1;
     }
     candidate
+}
+
+fn load_selected_requests(
+    root: &Path,
+    relative_paths: &[String],
+) -> Result<Vec<(PathBuf, RequestFile)>, WorkspaceError> {
+    if relative_paths.is_empty() {
+        return Err(WorkspaceError::EmptySelection);
+    }
+    let mut seen = HashSet::new();
+    let mut selected = Vec::with_capacity(relative_paths.len());
+    for value in relative_paths {
+        let relative = validate_relative_file(value, "requests")?;
+        if !seen.insert(relative.clone()) {
+            return Err(WorkspaceError::DuplicateSelection);
+        }
+        let full_path = root.join(&relative);
+        if !full_path.is_file() {
+            return Err(WorkspaceError::RequestNotFound(value.clone()));
+        }
+        let request: RequestFile = read_yaml(&full_path)?;
+        ensure_format(request.format_version)?;
+        validate_credentials(&request)?;
+        selected.push((relative, request));
+    }
+    Ok(selected)
 }
 
 fn safe_name(value: &str, fallback: &str) -> String {
@@ -618,6 +776,59 @@ mod tests {
         fs::remove_dir_all(source).unwrap();
         fs::remove_dir_all(target).unwrap();
         fs::remove_file(bundle).unwrap();
+    }
+
+    #[test]
+    fn manages_requests_in_batches_without_overwriting_files() {
+        let path = temp_workspace();
+        create(&path, Some("Batch API".to_string())).unwrap();
+        let request = RequestFile {
+            name: "Health".to_string(),
+            url: "https://api.example.test/health".to_string(),
+            ..RequestFile::default()
+        };
+        let source = save_request(&path, None, Some("System"), &request).unwrap();
+        let occupied = save_request(&path, None, Some("Users"), &request).unwrap();
+
+        let moved =
+            move_requests(&path, std::slice::from_ref(&source.relative_path), "Users").unwrap();
+        assert_eq!(moved[0].from, source.relative_path);
+        assert_eq!(moved[0].to, "requests/users/health-2.yaml");
+        assert!(!path.join(&moved[0].from).exists());
+        assert!(path.join(&moved[0].to).is_file());
+        assert!(path.join(&occupied.relative_path).is_file());
+
+        let duplicated =
+            duplicate_requests(&path, std::slice::from_ref(&moved[0].to), "Archive").unwrap();
+        assert_eq!(duplicated[0].to, "requests/archive/health.yaml");
+        assert!(path.join(&duplicated[0].to).is_file());
+
+        let renamed = rename_request(&path, &moved[0].to, "Service health").unwrap();
+        assert_eq!(renamed.request.name, "Service health");
+        assert_eq!(renamed.relative_path, moved[0].to);
+        assert_eq!(open(&path).unwrap().requests.len(), 3);
+
+        fs::remove_dir_all(path).unwrap();
+    }
+
+    #[test]
+    fn rejects_invalid_batch_selections() {
+        let path = temp_workspace();
+        create(&path, None).unwrap();
+        let request = save_request(&path, None, Some("System"), &RequestFile::default()).unwrap();
+        assert!(matches!(
+            move_requests(&path, &[], "Users"),
+            Err(WorkspaceError::EmptySelection)
+        ));
+        assert!(matches!(
+            duplicate_requests(
+                &path,
+                &[request.relative_path.clone(), request.relative_path],
+                "Users"
+            ),
+            Err(WorkspaceError::DuplicateSelection)
+        ));
+        fs::remove_dir_all(path).unwrap();
     }
 
     #[test]

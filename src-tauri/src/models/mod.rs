@@ -23,7 +23,8 @@ pub use security::SecurityReport;
 pub use session::CookieSummary;
 pub use stream::{StreamConnectConfig, StreamEvent};
 pub use workspace::{
-    EnvironmentSummary, ProductionGuard, RequestSummary, WorkspaceConfig, WorkspaceSnapshot,
+    EnvironmentSummary, ProductionGuard, RequestBatchResult, RequestPathChange, RequestSummary,
+    WorkspaceConfig, WorkspaceSnapshot,
 };
 
 pub const FORMAT_VERSION: u32 = 1;

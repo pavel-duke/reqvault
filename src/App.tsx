@@ -9,6 +9,7 @@ import {
   closeWorkspaceSession,
   deleteCookie,
   diagnoseWorkspace,
+  duplicateRequests,
   getHistoryEntry,
   getHistorySettings,
   getWorkspaceFingerprint,
@@ -24,12 +25,14 @@ import {
   listCookies,
   listSecrets,
   migrateWorkspace,
+  moveRequests,
   openWorkspace,
   removeEnvironment,
   removeHistoryEntry,
   removeRequest,
   removeSecret,
   refreshOAuth,
+  renameRequest,
   rollbackWorkspaceMigration,
   runCollection,
   saveEnvironment,
@@ -49,6 +52,7 @@ import { CommandPalette, type PaletteAction } from "./components/CommandPalette"
 import { CookieDialog } from "./components/CookieDialog";
 import { HistoryDialog } from "./components/HistoryDialog";
 import { RequestEditor } from "./components/RequestEditor";
+import { RequestManagerDialog } from "./components/RequestManagerDialog";
 import { RequestTabs } from "./components/RequestTabs";
 import { ResponseCompareDialog } from "./components/ResponseCompareDialog";
 import { ResponseViewer } from "./components/ResponseViewer";
@@ -129,13 +133,16 @@ function App() {
   const [draftDirty, setDraftDirty] = useState(false);
   const [recoverableDraft, setRecoverableDraft] = useState<StoredDraft | null>(null);
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
+  const [requestManagerOpen, setRequestManagerOpen] = useState(false);
+  const [requestManagerError, setRequestManagerError] = useState<string | null>(null);
   const [favoritePaths, setFavoritePaths] = useState<string[]>([]);
   const [recentPaths, setRecentPaths] = useState<string[]>([]);
   const [openTabs, setOpenTabs] = useState<RequestTabState[]>([]);
   const [activeTabId, setActiveTabId] = useState<string | null>(null);
   const tabStates = useRef(new Map<string, RequestTabState>());
   const modalOpen = environmentsOpen || secretsOpen || historyOpen || cookiesOpen || compareOpen
-    || curlOpen || settingsOpen || runnerOpen || streamOpen || diagnosticsOpen || commandPaletteOpen;
+    || curlOpen || settingsOpen || runnerOpen || streamOpen || diagnosticsOpen || commandPaletteOpen
+    || requestManagerOpen;
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
@@ -359,6 +366,86 @@ function App() {
       : [path, ...favoritePaths];
     setFavoritePaths(nextFavorites);
     saveNavigation(workspace.config.id, { favorites: nextFavorites, recent: recentPaths });
+  }
+
+  async function moveSelectedRequests(paths: string[], targetCollection: string) {
+    if (!workspace) return;
+    stashActiveTab();
+    setBusy(true);
+    setRequestManagerError(null);
+    try {
+      const result = await moveRequests(workspace.root_path, paths, targetCollection);
+      const pathMap = new Map(result.changes.map((change) => [change.from, change.to]));
+      const sourceTabs = openTabs.map((tab) => tabStates.current.get(tab.id) ?? tab);
+      const activeIndex = sourceTabs.findIndex((tab) => tab.id === activeTabId);
+      const nextTabs = sourceTabs.map((tab) => {
+        if (!tab.relativePath) return tab;
+        const nextPath = pathMap.get(tab.relativePath);
+        return nextPath ? { ...tab, id: savedTabId(nextPath), relativePath: nextPath, collection: collectionFromPath(nextPath) } : tab;
+      });
+      const nextFavorites = [...new Set(favoritePaths.map((path) => pathMap.get(path) ?? path))];
+      const nextRecent = [...new Set(recentPaths.map((path) => pathMap.get(path) ?? path))];
+      applyWorkspace(result.workspace);
+      replaceTabs(nextTabs);
+      const nextActive = nextTabs[activeIndex] ?? nextTabs[0] ?? null;
+      if (nextActive) activateTab(nextActive);
+      else clearActiveTab();
+      setFavoritePaths(nextFavorites);
+      setRecentPaths(nextRecent);
+      saveNavigation(result.workspace.config.id, { favorites: nextFavorites, recent: nextRecent });
+      setImportStatus(`Перемещено запросов: ${result.changes.filter((change) => change.from !== change.to).length}`);
+      setRequestManagerOpen(false);
+    } catch (caught) {
+      setRequestManagerError(errorMessage(caught));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function duplicateSelectedRequests(paths: string[], targetCollection: string) {
+    if (!workspace) return;
+    const hasDirtySource = [...tabStates.current.values()].some((tab) => tab.dirty && tab.relativePath && paths.includes(tab.relativePath));
+    if (hasDirtySource) {
+      setRequestManagerError("Сначала сохрани изменённые запросы: дубликат создаётся из YAML-файла на диске.");
+      return;
+    }
+    setBusy(true);
+    setRequestManagerError(null);
+    try {
+      const result = await duplicateRequests(workspace.root_path, paths, targetCollection);
+      applyWorkspace(result.workspace);
+      setImportStatus(`Создано копий: ${result.changes.length}`);
+      setRequestManagerOpen(false);
+    } catch (caught) {
+      setRequestManagerError(errorMessage(caught));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function renameSelectedRequest(path: string, name: string) {
+    if (!workspace) return;
+    stashActiveTab();
+    setBusy(true);
+    setRequestManagerError(null);
+    try {
+      const snapshot = await renameRequest(workspace.root_path, path, name);
+      const saved = snapshot.requests.find((summary) => summary.relative_path === path);
+      const sourceTabs = openTabs.map((tab) => tabStates.current.get(tab.id) ?? tab);
+      const nextTabs = sourceTabs.map((tab) => tab.relativePath === path && saved
+        ? { ...tab, request: { ...tab.request, name: saved.request.name } }
+        : tab);
+      applyWorkspace(snapshot);
+      replaceTabs(nextTabs);
+      const nextActive = nextTabs.find((tab) => tab.id === activeTabId) ?? nextTabs[0] ?? null;
+      if (nextActive) activateTab(nextActive);
+      setImportStatus("Название запроса обновлено");
+      setRequestManagerOpen(false);
+    } catch (caught) {
+      setRequestManagerError(errorMessage(caught));
+    } finally {
+      setBusy(false);
+    }
   }
 
   function newRequest() {
@@ -992,6 +1079,8 @@ function App() {
     setRecoverableDraft(null);
     setDraftDirty(false);
     setCommandPaletteOpen(false);
+    setRequestManagerOpen(false);
+    setRequestManagerError(null);
     setFavoritePaths([]);
     setRecentPaths([]);
     tabStates.current.clear();
@@ -1003,6 +1092,7 @@ function App() {
     { id: "new-request", label: "Новый запрос", description: "Создать черновик запроса", keywords: "create", shortcut: "Alt N", icon: "file", onSelect: newRequest },
     { id: "send-request", label: "Выполнить запрос", description: draft ? `${draft.method} ${draft.name}` : "Сначала открой запрос", keywords: "send run execute", shortcut: "Ctrl Enter", icon: "activity", onSelect: () => void sendCurrentRequest() },
     { id: "search-tree", label: "Поиск в workspace", description: "Отфильтровать дерево запросов", keywords: "find filter", icon: "search", onSelect: () => window.requestAnimationFrame(() => document.querySelector<HTMLInputElement>("#workspace-search")?.focus()) },
+    { id: "manage-requests", label: "Управление запросами", description: "Перенос, копирование и переименование", keywords: "batch move duplicate rename", icon: "archive", onSelect: () => { setRequestManagerError(null); setRequestManagerOpen(true); } },
     { id: "environment", label: "Окружения", description: activeEnvironment ? `Активное: ${workspace.environments.find((item) => item.relative_path === activeEnvironment)?.environment.name ?? activeEnvironment}` : "Настроить переменные окружения", keywords: "environment env variables", icon: "settings", onSelect: () => { setEnvironmentError(null); setEnvironmentsOpen(true); } },
     { id: "secrets", label: "Secret Vault", description: "Управление защищёнными значениями", keywords: "token password api key", icon: "key", onSelect: () => void openSecrets() },
     { id: "diagnostics", label: "Диагностика workspace", description: "Проверить YAML, переменные, TLS и файлы", keywords: "errors health", icon: "shield", onSelect: () => void openDiagnostics() },
@@ -1052,6 +1142,7 @@ function App() {
             onSelectRequest={selectRequest}
             onToggleFavorite={toggleFavorite}
             onNewRequest={newRequest}
+            onManageRequests={() => { setRequestManagerError(null); setRequestManagerOpen(true); }}
             onEnvironmentChange={setActiveEnvironment}
             onEditEnvironments={() => { setEnvironmentError(null); setEnvironmentsOpen(true); }}
             onEditSecrets={() => void openSecrets()}
@@ -1086,6 +1177,18 @@ function App() {
           recentPaths={recentPaths}
           onOpenRequest={selectRequest}
           onClose={() => setCommandPaletteOpen(false)}
+        />
+      )}
+
+      {workspace && requestManagerOpen && (
+        <RequestManagerDialog
+          requests={workspace.requests}
+          busy={busy}
+          error={requestManagerError}
+          onMove={(paths, targetCollection) => void moveSelectedRequests(paths, targetCollection)}
+          onDuplicate={(paths, targetCollection) => void duplicateSelectedRequests(paths, targetCollection)}
+          onRename={(path, name) => void renameSelectedRequest(path, name)}
+          onClose={() => setRequestManagerOpen(false)}
         />
       )}
 

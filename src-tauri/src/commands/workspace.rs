@@ -2,8 +2,8 @@ use std::path::Path;
 
 use crate::{
     models::{
-        EnvironmentFile, EnvironmentSummary, MigrationPlan, MigrationResult, RequestFile,
-        RequestSummary, WorkspaceConfig, WorkspaceDiagnostics, WorkspaceSnapshot,
+        EnvironmentFile, EnvironmentSummary, MigrationPlan, MigrationResult, RequestBatchResult,
+        RequestFile, RequestSummary, WorkspaceConfig, WorkspaceDiagnostics, WorkspaceSnapshot,
     },
     secrets::{self, KeyringBackend},
     workspace,
@@ -62,6 +62,43 @@ pub fn save_request(
 pub fn delete_request(workspace_path: String, relative_path: String) -> Result<(), String> {
     workspace::delete_request(Path::new(&workspace_path), &relative_path)
         .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub fn move_requests(
+    workspace_path: String,
+    relative_paths: Vec<String>,
+    collection: String,
+) -> Result<RequestBatchResult, String> {
+    let root = Path::new(&workspace_path);
+    let changes = workspace::move_requests(root, &relative_paths, &collection)
+        .map_err(|error| error.to_string())?;
+    let workspace = workspace::open(root).map_err(|error| error.to_string())?;
+    Ok(RequestBatchResult { workspace, changes })
+}
+
+#[tauri::command]
+pub fn duplicate_requests(
+    workspace_path: String,
+    relative_paths: Vec<String>,
+    collection: String,
+) -> Result<RequestBatchResult, String> {
+    let root = Path::new(&workspace_path);
+    let changes = workspace::duplicate_requests(root, &relative_paths, &collection)
+        .map_err(|error| error.to_string())?;
+    let workspace = workspace::open(root).map_err(|error| error.to_string())?;
+    Ok(RequestBatchResult { workspace, changes })
+}
+
+#[tauri::command]
+pub fn rename_request(
+    workspace_path: String,
+    relative_path: String,
+    name: String,
+) -> Result<WorkspaceSnapshot, String> {
+    let root = Path::new(&workspace_path);
+    workspace::rename_request(root, &relative_path, &name).map_err(|error| error.to_string())?;
+    workspace::open(root).map_err(|error| error.to_string())
 }
 
 #[tauri::command]
