@@ -1107,7 +1107,7 @@ function App() {
       <a className="skip-link" href="#main-workspace">Перейти к редактору</a>
       <header className="topbar">
         <div className="topbar-leading">
-          <div className="brand" aria-label="ReqVault"><ReqVaultMark className="brand-mark" /><span>ReqVault</span><em>1.0</em></div>
+          <div className="brand" aria-label="ReqVault"><ReqVaultMark className="brand-mark" /><span>ReqVault</span><em>1.1</em></div>
           {workspace && <div className="workspace-breadcrumb"><span>/</span><strong>{workspace.config.name}</strong></div>}
         </div>
         <div className="topbar-actions">
