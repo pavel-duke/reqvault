@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { open, save } from "@tauri-apps/plugin-dialog";
 import { writeText } from "@tauri-apps/plugin-clipboard-manager";
 import {
@@ -49,6 +49,7 @@ import { CommandPalette, type PaletteAction } from "./components/CommandPalette"
 import { CookieDialog } from "./components/CookieDialog";
 import { HistoryDialog } from "./components/HistoryDialog";
 import { RequestEditor } from "./components/RequestEditor";
+import { RequestTabs } from "./components/RequestTabs";
 import { ResponseCompareDialog } from "./components/ResponseCompareDialog";
 import { ResponseViewer } from "./components/ResponseViewer";
 import { SecretDialog } from "./components/SecretDialog";
@@ -59,8 +60,9 @@ import { WorkspaceRail } from "./components/WorkspaceRail";
 import { WorkspaceOverview } from "./components/WorkspaceOverview";
 import { StreamDialog } from "./components/StreamDialog";
 import { collectionFromPath, emptyRequest } from "./request-utils";
-import { draftStorageKey, sanitizeDraft, type StoredDraft } from "./draft-storage";
+import { draftStorageKey, type StoredDraft } from "./draft-storage";
 import { addRecent, loadNavigation, saveNavigation } from "./navigation-storage";
+import { loadTabs, newTabId, savedTabId, saveTabs, type RequestTabState } from "./tabs-storage";
 import type { CollectionRunOptions, CollectionRunReport, CookieSummary, EnvironmentFile, HistorySettings, HistorySummary, HttpError, HttpResponse, RequestFile, RequestSummary, SecurityReport, Theme, WorkspaceConfig, WorkspaceDiagnostics, WorkspaceSnapshot } from "./types";
 import "./App.css";
 
@@ -129,6 +131,9 @@ function App() {
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
   const [favoritePaths, setFavoritePaths] = useState<string[]>([]);
   const [recentPaths, setRecentPaths] = useState<string[]>([]);
+  const [openTabs, setOpenTabs] = useState<RequestTabState[]>([]);
+  const [activeTabId, setActiveTabId] = useState<string | null>(null);
+  const tabStates = useRef(new Map<string, RequestTabState>());
   const modalOpen = environmentsOpen || secretsOpen || historyOpen || cookiesOpen || compareOpen
     || curlOpen || settingsOpen || runnerOpen || streamOpen || diagnosticsOpen || commandPaletteOpen;
 
@@ -161,18 +166,13 @@ function App() {
   }, [activeEnvironment, draft, workspace]);
 
   useEffect(() => {
-    if (!workspace || !draft || !draftDirty) return;
+    if (!workspace) return;
     const timer = window.setTimeout(() => {
-      const stored: StoredDraft = {
-        relativePath: selectedPath,
-        collection,
-        updatedAt: Date.now(),
-        request: sanitizeDraft(draft),
-      };
-      window.localStorage.setItem(draftStorageKey(workspace.config.id), JSON.stringify(stored));
-    }, 250);
+      saveTabs(workspace.config.id, activeTabId, openTabs);
+      if (!recoverableDraft) window.localStorage.removeItem(draftStorageKey(workspace.config.id));
+    }, 180);
     return () => window.clearTimeout(timer);
-  }, [collection, draft, draftDirty, selectedPath, workspace]);
+  }, [activeTabId, openTabs, recoverableDraft, workspace]);
 
   useEffect(() => {
     if (!workspace || !knownFingerprint) return;
@@ -228,14 +228,11 @@ function App() {
   }, [modalOpen]);
 
   useEffect(() => {
-    if (!workspace || !draft || !draftDirty) return;
-    const saveBeforeClose = () => {
-      const stored: StoredDraft = { relativePath: selectedPath, collection, updatedAt: Date.now(), request: sanitizeDraft(draft) };
-      window.localStorage.setItem(draftStorageKey(workspace.config.id), JSON.stringify(stored));
-    };
+    if (!workspace) return;
+    const saveBeforeClose = () => saveTabs(workspace.config.id, activeTabId, openTabs);
     window.addEventListener("beforeunload", saveBeforeClose);
     return () => window.removeEventListener("beforeunload", saveBeforeClose);
-  }, [collection, draft, draftDirty, selectedPath, workspace]);
+  }, [activeTabId, openTabs, workspace]);
 
   function applyWorkspace(snapshot: WorkspaceSnapshot) {
     const workspaceChanged = workspace?.config.id !== snapshot.config.id;
@@ -245,6 +242,13 @@ function App() {
     const navigation = loadNavigation(snapshot.config.id, snapshot.requests.map((item) => item.relative_path));
     setFavoritePaths(navigation.favorites);
     setRecentPaths(navigation.recent);
+    if (workspaceChanged) {
+      const restored = loadTabs(snapshot.config.id, snapshot.requests);
+      replaceTabs(restored.tabs);
+      const active = restored.tabs.find((tab) => tab.id === restored.activeId) ?? restored.tabs[0] ?? null;
+      if (active) activateTab(active);
+      else clearActiveTab();
+    }
     void getWorkspaceFingerprint(snapshot.root_path).then(setKnownFingerprint).catch(() => setKnownFingerprint(""));
     if (workspaceChanged) {
       const stored = window.localStorage.getItem(draftStorageKey(snapshot.config.id));
@@ -274,8 +278,6 @@ function App() {
     try {
       const snapshot = mode === "create" ? await createWorkspace(selected) : await openWorkspace(selected);
       applyWorkspace(snapshot);
-      setDraft(null);
-      setSelectedPath(null);
     } catch (caught) {
       setError(errorMessage(caught));
     } finally {
@@ -283,14 +285,66 @@ function App() {
     }
   }
 
-  function selectRequest(summary: RequestSummary) {
-    setSelectedPath(summary.relative_path);
-    setDraft(structuredClone(summary.request));
-    setCollection(collectionFromPath(summary.relative_path));
+  function replaceTabs(tabs: RequestTabState[]) {
+    tabStates.current = new Map(tabs.map((tab) => [tab.id, tab]));
+    setOpenTabs(tabs);
+  }
+
+  function updateTabState(tab: RequestTabState) {
+    tabStates.current.set(tab.id, tab);
+    setOpenTabs((current) => current.map((item) => item.id === tab.id ? tab : item));
+  }
+
+  function stashActiveTab() {
+    if (!activeTabId || !draft) return;
+    const current = tabStates.current.get(activeTabId);
+    if (!current) return;
+    updateTabState({ ...current, relativePath: selectedPath, collection, request: structuredClone(draft), dirty: draftDirty, response, httpError });
+  }
+
+  function activateTab(tab: RequestTabState) {
+    setActiveTabId(tab.id);
+    setSelectedPath(tab.relativePath);
+    setDraft(structuredClone(tab.request));
+    setCollection(tab.collection);
+    setDraftDirty(tab.dirty);
+    setResponse(tab.response);
+    setHttpError(tab.httpError);
     setError(null);
+  }
+
+  function clearActiveTab() {
+    setActiveTabId(null);
+    setSelectedPath(null);
+    setDraft(null);
+    setCollection("Общее");
+    setDraftDirty(false);
     setResponse(null);
     setHttpError(null);
-    setDraftDirty(false);
+  }
+
+  function selectRequest(summary: RequestSummary) {
+    stashActiveTab();
+    const id = savedTabId(summary.relative_path);
+    const existing = tabStates.current.get(id);
+    const tab = existing ?? {
+      id,
+      relativePath: summary.relative_path,
+      collection: collectionFromPath(summary.relative_path),
+      dirty: false,
+      request: structuredClone(summary.request),
+      response: null,
+      httpError: null,
+    };
+    if (!existing) {
+      if (openTabs.length >= 20) {
+        setError("Открыто 20 вкладок. Закрой ненужную вкладку и повтори.");
+        return;
+      }
+      tabStates.current.set(id, tab);
+      setOpenTabs((current) => [...current, tab]);
+    }
+    activateTab(tab);
     if (workspace) {
       const nextRecent = addRecent(recentPaths, summary.relative_path);
       setRecentPaths(nextRecent);
@@ -308,18 +362,63 @@ function App() {
   }
 
   function newRequest() {
-    setSelectedPath(null);
-    setDraft(emptyRequest());
-    setCollection("Общее");
-    setError(null);
-    setResponse(null);
-    setHttpError(null);
-    setDraftDirty(true);
+    if (openTabs.length >= 20) {
+      setError("Открыто 20 вкладок. Закрой ненужную вкладку перед созданием новой.");
+      return;
+    }
+    stashActiveTab();
+    const tab: RequestTabState = {
+      id: newTabId(),
+      relativePath: null,
+      collection: "Общее",
+      dirty: true,
+      request: emptyRequest(),
+      response: null,
+      httpError: null,
+    };
+    tabStates.current.set(tab.id, tab);
+    setOpenTabs((current) => [...current, tab]);
+    activateTab(tab);
   }
 
   function updateDraft(request: RequestFile) {
     setDraft(request);
     setDraftDirty(true);
+    if (activeTabId) {
+      const current = tabStates.current.get(activeTabId);
+      if (current) updateTabState({ ...current, request: structuredClone(request), dirty: true });
+    }
+  }
+
+  function updateCollection(value: string) {
+    setCollection(value);
+    setDraftDirty(true);
+    if (activeTabId) {
+      const current = tabStates.current.get(activeTabId);
+      if (current) updateTabState({ ...current, collection: value, dirty: true });
+    }
+  }
+
+  function selectOpenTab(id: string) {
+    if (id === activeTabId) return;
+    stashActiveTab();
+    const tab = tabStates.current.get(id);
+    if (tab) activateTab(tab);
+  }
+
+  function closeRequestTab(id: string) {
+    const tab = tabStates.current.get(id);
+    if (!tab) return;
+    if (tab.dirty && !window.confirm(`Закрыть «${tab.request.name || "Без названия"}» и удалить несохранённый черновик?`)) return;
+    const index = openTabs.findIndex((item) => item.id === id);
+    const remaining = openTabs.filter((item) => item.id !== id);
+    tabStates.current.delete(id);
+    setOpenTabs(remaining);
+    if (id === activeTabId) {
+      const next = remaining[Math.min(index, remaining.length - 1)] ?? null;
+      if (next) activateTab(next);
+      else clearActiveTab();
+    }
   }
 
   async function sendCurrentRequest() {
@@ -329,13 +428,21 @@ function App() {
     setHttpError(null);
     setResponseActionStatus(null);
     try {
-      setResponse(await sendHttpRequest(draft, environment, workspace.config.id, workspace.root_path));
+      const result = await sendHttpRequest(draft, environment, workspace.config.id, workspace.root_path);
+      setResponse(result);
+      if (activeTabId) {
+        const current = tabStates.current.get(activeTabId);
+        if (current) updateTabState({ ...current, response: result, httpError: null });
+      }
     } catch (caught) {
       setResponse(null);
-      if (caught && typeof caught === "object" && "message" in caught) {
-        setHttpError(caught as HttpError);
-      } else {
-        setHttpError({ message: errorMessage(caught), details: null, error_type: "unknown" });
+      const nextError = caught && typeof caught === "object" && "message" in caught
+        ? caught as HttpError
+        : { message: errorMessage(caught), details: null, error_type: "unknown" };
+      setHttpError(nextError);
+      if (activeTabId) {
+        const current = tabStates.current.get(activeTabId);
+        if (current) updateTabState({ ...current, response: null, httpError: nextError });
       }
     } finally {
       setSending(false);
@@ -576,6 +683,7 @@ function App() {
 
   async function persistRequest() {
     if (!workspace || !draft) return;
+    const previousTabId = activeTabId;
     setBusy(true);
     setError(null);
     setResponse(null);
@@ -584,7 +692,25 @@ function App() {
       const saved = await saveRequest(workspace.root_path, selectedPath, collection, draft);
       const snapshot = await openWorkspace(workspace.root_path);
       applyWorkspace(snapshot);
-      selectRequest(saved);
+      const id = savedTabId(saved.relative_path);
+      const savedTab: RequestTabState = {
+        id,
+        relativePath: saved.relative_path,
+        collection: collectionFromPath(saved.relative_path),
+        dirty: false,
+        request: structuredClone(saved.request),
+        response: null,
+        httpError: null,
+      };
+      const withoutDuplicate = openTabs.filter((tab) => tab.id !== id || tab.id === previousTabId);
+      const nextTabs = previousTabId && withoutDuplicate.some((tab) => tab.id === previousTabId)
+        ? withoutDuplicate.map((tab) => tab.id === previousTabId ? savedTab : tab)
+        : [...withoutDuplicate, savedTab];
+      replaceTabs(nextTabs);
+      activateTab(savedTab);
+      const nextRecent = addRecent(recentPaths, saved.relative_path);
+      setRecentPaths(nextRecent);
+      saveNavigation(workspace.config.id, { favorites: favoritePaths, recent: nextRecent });
       window.localStorage.removeItem(draftStorageKey(workspace.config.id));
       setRecoverableDraft(null);
     } catch (caught) {
@@ -596,13 +722,22 @@ function App() {
 
   async function deleteCurrentRequest() {
     if (!workspace || !selectedPath || !window.confirm("Удалить этот запрос из workspace?")) return;
+    const deletingTabId = activeTabId;
     setBusy(true);
     setError(null);
     try {
       await removeRequest(workspace.root_path, selectedPath);
       applyWorkspace(await openWorkspace(workspace.root_path));
-      setSelectedPath(null);
-      setDraft(null);
+      if (deletingTabId) {
+        const index = openTabs.findIndex((tab) => tab.id === deletingTabId);
+        const remaining = openTabs.filter((tab) => tab.id !== deletingTabId);
+        replaceTabs(remaining);
+        const next = remaining[Math.min(index, remaining.length - 1)] ?? null;
+        if (next) activateTab(next);
+        else clearActiveTab();
+      } else {
+        clearActiveTab();
+      }
     } catch (caught) {
       setError(errorMessage(caught));
     } finally {
@@ -782,14 +917,16 @@ function App() {
     setError(null);
     try {
       const snapshot = await openWorkspace(workspace.root_path);
-      const selected = selectedPath ? snapshot.requests.find((item) => item.relative_path === selectedPath) : null;
       applyWorkspace(snapshot);
-      if (selected) selectRequest(selected);
-      else {
-        setSelectedPath(null);
-        setDraft(null);
-        setDraftDirty(false);
-      }
+      const refreshed = openTabs.flatMap((tab) => {
+        if (!tab.relativePath) return [tab];
+        const saved = snapshot.requests.find((item) => item.relative_path === tab.relativePath);
+        return saved ? [{ ...tab, request: structuredClone(saved.request), dirty: false, response: null, httpError: null }] : [];
+      });
+      replaceTabs(refreshed);
+      const active = refreshed.find((tab) => tab.id === activeTabId) ?? refreshed[0] ?? null;
+      if (active) activateTab(active);
+      else clearActiveTab();
     } catch (caught) {
       setError(errorMessage(caught));
     } finally {
@@ -799,13 +936,23 @@ function App() {
 
   function restoreDraft() {
     if (!recoverableDraft) return;
-    setSelectedPath(recoverableDraft.relativePath);
-    setCollection(recoverableDraft.collection);
-    setDraft(recoverableDraft.request);
-    setDraftDirty(true);
+    stashActiveTab();
+    const id = recoverableDraft.relativePath ? savedTabId(recoverableDraft.relativePath) : newTabId();
+    const tab: RequestTabState = {
+      id,
+      relativePath: recoverableDraft.relativePath,
+      collection: recoverableDraft.collection,
+      dirty: true,
+      request: structuredClone(recoverableDraft.request),
+      response: null,
+      httpError: null,
+    };
+    const nextTabs = openTabs.some((item) => item.id === id)
+      ? openTabs.map((item) => item.id === id ? tab : item)
+      : [...openTabs, tab];
+    replaceTabs(nextTabs);
+    activateTab(tab);
     setRecoverableDraft(null);
-    setResponse(null);
-    setHttpError(null);
   }
 
   function discardRecoveredDraft() {
@@ -832,6 +979,8 @@ function App() {
 
   function closeWorkspace() {
     if (workspace) {
+      stashActiveTab();
+      saveTabs(workspace.config.id, activeTabId, openTabs.map((tab) => tabStates.current.get(tab.id) ?? tab));
       void closeWorkspaceSession(workspace.config.id);
       window.localStorage.removeItem(draftStorageKey(workspace.config.id));
     }
@@ -845,6 +994,9 @@ function App() {
     setCommandPaletteOpen(false);
     setFavoritePaths([]);
     setRecentPaths([]);
+    tabStates.current.clear();
+    setOpenTabs([]);
+    setActiveTabId(null);
   }
 
   const paletteActions: PaletteAction[] = workspace ? [
@@ -908,10 +1060,11 @@ function App() {
           <div className="main-panel" id="main-workspace" tabIndex={-1}>
             {externalChange && <div className="external-change-banner" role="status"><div><strong>Файлы workspace изменились вне ReqVault</strong><p>{draftDirty ? "Перезагрузка заменит текущий несохранённый черновик." : "Перезагрузите данные, чтобы увидеть актуальную версию."}</p></div><button className="secondary-button" type="button" onClick={() => void reloadExternalChanges()}>Перезагрузить</button></div>}
             {recoverableDraft && <div className="draft-recovery-banner" role="status"><div><strong>Найден несохранённый черновик</strong><p>Сохранён {new Intl.DateTimeFormat("ru-RU", { dateStyle: "short", timeStyle: "short" }).format(recoverableDraft.updatedAt)}. Credential были удалены из локальной копии.</p></div><div className="inline-actions"><button className="primary-button" type="button" onClick={restoreDraft}>Восстановить</button><button className="secondary-button" type="button" onClick={discardRecoveredDraft}>Удалить</button></div></div>}
+            <RequestTabs tabs={openTabs} activeId={activeTabId} onSelect={selectOpenTab} onClose={closeRequestTab} onNew={newRequest} />
             {draft ? (
               <div className="request-workbench">
                 {importStatus && <div className="success-banner">{importStatus}</div>}
-                <RequestEditor request={draft} relativePath={selectedPath} collection={collection} saving={busy} sending={sending} error={error} securityReport={securityReport} copyStatus={copyStatus} dirty={draftDirty} onChange={updateDraft} onCollectionChange={(value) => { setCollection(value); setDraftDirty(true); }} onSave={() => void persistRequest()} onDelete={() => void deleteCurrentRequest()} onSend={() => void sendCurrentRequest()} onCopyCurl={() => void copyCurl()} onAuthorizeOAuth={() => void authorizeCurrentOAuth()} onRefreshOAuth={() => void refreshCurrentOAuth()} oauthBusy={oauthBusy} oauthStatus={oauthStatus} />
+                <RequestEditor request={draft} relativePath={selectedPath} collection={collection} saving={busy} sending={sending} error={error} securityReport={securityReport} copyStatus={copyStatus} dirty={draftDirty} onChange={updateDraft} onCollectionChange={updateCollection} onSave={() => void persistRequest()} onDelete={() => void deleteCurrentRequest()} onSend={() => void sendCurrentRequest()} onCopyCurl={() => void copyCurl()} onAuthorizeOAuth={() => void authorizeCurrentOAuth()} onRefreshOAuth={() => void refreshCurrentOAuth()} oauthBusy={oauthBusy} oauthStatus={oauthStatus} />
                 <ResponseViewer response={response} error={httpError} loading={sending} onExport={(format) => void exportCurrentResponse(format)} onSaveFixture={() => void saveCurrentFixture()} onCompare={() => void openResponseCompare()} actionStatus={responseActionStatus} />
               </div>
             ) : (

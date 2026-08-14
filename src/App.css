@@ -2621,6 +2621,123 @@ code {
   .command-footer span:last-child { display: none; }
 }
 
+.request-tabs-shell {
+  position: sticky;
+  z-index: 12;
+  top: 0;
+  display: flex;
+  min-height: 42px;
+  align-items: stretch;
+  padding: 5px 8px 0;
+  border-bottom: 1px solid var(--border);
+  background: color-mix(in srgb, var(--surface) 97%, transparent);
+  backdrop-filter: blur(8px);
+}
+
+.request-tabs {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  gap: 4px;
+  overflow-x: auto;
+  scrollbar-width: thin;
+}
+
+.request-tab {
+  display: grid;
+  min-width: 150px;
+  max-width: 230px;
+  grid-template-columns: minmax(0, 1fr) 27px;
+  align-items: center;
+  color: var(--muted);
+  border: 1px solid transparent;
+  border-bottom: 0;
+  border-radius: 8px 8px 0 0;
+}
+
+.request-tab:hover {
+  color: var(--text);
+  background: var(--surface-muted);
+}
+
+.request-tab.active {
+  color: var(--text);
+  border-color: var(--border);
+  background: var(--surface);
+  box-shadow: inset 0 2px var(--accent);
+}
+
+.request-tab > button:first-child {
+  display: grid;
+  min-width: 0;
+  min-height: 34px;
+  grid-template-columns: 38px minmax(0, 1fr) 8px;
+  align-items: center;
+  gap: 6px;
+  padding: 0 5px 0 9px;
+  color: inherit;
+  border: 0;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+
+.request-tab > button:first-child > span:nth-child(2) {
+  overflow: hidden;
+  font-size: 10px;
+  font-weight: 630;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.request-tab i {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #d18a00;
+}
+
+.request-tab-close,
+.request-tab-new {
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+}
+
+.request-tab-close {
+  width: 25px;
+  height: 25px;
+  color: var(--muted);
+  border-radius: 6px;
+  opacity: 0;
+}
+
+.request-tab:hover .request-tab-close,
+.request-tab.active .request-tab-close,
+.request-tab-close:focus-visible {
+  opacity: 1;
+}
+
+.request-tab-close:hover,
+.request-tab-new:hover {
+  color: var(--text);
+  background: var(--surface-strong);
+}
+
+.request-tab-new {
+  align-self: center;
+  width: 30px;
+  height: 30px;
+  margin: 0 2px 3px 6px;
+  color: var(--muted);
+  border-radius: 7px;
+  font-size: 17px;
+}
+
+.request-tabs-shell + .request-workbench {
+  min-height: calc(100% - 42px);
+}
+
 @media (max-width: 540px) {
   .start-screen {
     padding: 18px;
