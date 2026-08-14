@@ -6,7 +6,10 @@ type Props = {
   workspace: WorkspaceSnapshot;
   selectedPath: string | null;
   activeEnvironment: string;
+  favoritePaths: string[];
+  recentPaths: string[];
   onSelectRequest: (summary: RequestSummary) => void;
+  onToggleFavorite: (path: string) => void;
   onNewRequest: () => void;
   onEnvironmentChange: (path: string) => void;
   onEditEnvironments: () => void;
@@ -32,7 +35,10 @@ export function Sidebar({
   workspace,
   selectedPath,
   activeEnvironment,
+  favoritePaths,
+  recentPaths,
   onSelectRequest,
+  onToggleFavorite,
   onNewRequest,
   onEnvironmentChange,
   onEditEnvironments,
@@ -44,7 +50,7 @@ export function Sidebar({
   const filteredRequests = useMemo(() => {
     if (!normalizedSearch) return workspace.requests;
     return workspace.requests.filter((summary) =>
-      [summary.request.name, summary.request.url, summary.request.method, summary.relative_path]
+      [summary.request.name, summary.request.url, summary.request.method, summary.relative_path, ...Object.keys(summary.request.headers)]
         .some((value) => value.toLocaleLowerCase("ru").includes(normalizedSearch)),
     );
   }, [normalizedSearch, workspace.requests]);
@@ -55,6 +61,38 @@ export function Sidebar({
       )
     : [];
   const groups = groupedRequests(filteredRequests);
+  const byPath = new Map(workspace.requests.map((summary) => [summary.relative_path, summary]));
+  const favorites = favoritePaths.map((path) => byPath.get(path)).filter((item): item is RequestSummary => Boolean(item));
+  const recent = recentPaths
+    .filter((path) => !favoritePaths.includes(path))
+    .map((path) => byPath.get(path))
+    .filter((item): item is RequestSummary => Boolean(item))
+    .slice(0, 5);
+
+  const requestRow = (summary: RequestSummary) => {
+    const favorite = favoritePaths.includes(summary.relative_path);
+    return (
+      <div className="request-item-row" key={summary.relative_path}>
+        <button
+          type="button"
+          className={`request-item ${selectedPath === summary.relative_path ? "selected" : ""}`}
+          onClick={() => onSelectRequest(summary)}
+        >
+          <span className={`method method-${summary.request.method.toLowerCase()}`}>
+            {summary.request.method}
+          </span>
+          <span>{summary.request.name}</span>
+        </button>
+        <button
+          className={`favorite-toggle ${favorite ? "active" : ""}`}
+          type="button"
+          onClick={() => onToggleFavorite(summary.relative_path)}
+          aria-label={favorite ? `Открепить ${summary.request.name}` : `Закрепить ${summary.request.name}`}
+          title={favorite ? "Убрать из избранного" : "Добавить в избранное"}
+        ><Icon name="star" /></button>
+      </div>
+    );
+  };
 
   return (
     <aside className="sidebar">
@@ -96,7 +134,7 @@ export function Sidebar({
 
       <label className="sidebar-search">
         <span className="sr-only">Поиск запросов и окружений</span>
-        <input id="workspace-search" value={search} onChange={(event) => setSearch(event.currentTarget.value)} placeholder="Поиск по запросам и URL" />
+        <input id="workspace-search" value={search} onChange={(event) => setSearch(event.currentTarget.value)} placeholder="Название, URL, метод, заголовок" />
         {search && <button type="button" onClick={() => setSearch("")} aria-label="Очистить поиск">×</button>}
       </label>
       {matchingEnvironments.length > 0 && <div className="environment-results"><small>Окружения</small>{matchingEnvironments.map((environment) => <button type="button" key={environment.relative_path} onClick={() => onEnvironmentChange(environment.relative_path)}>{environmentLabel(environment)}</button>)}</div>}
@@ -108,22 +146,12 @@ export function Sidebar({
             {!search && <button className="text-button" type="button" onClick={onNewRequest}>Создать запрос</button>}
           </div>
         )}
+        {!search && favorites.length > 0 && <div className="request-group quick-group"><h2><Icon name="star" /> Избранное</h2>{favorites.map(requestRow)}</div>}
+        {!search && recent.length > 0 && <div className="request-group quick-group"><h2><Icon name="clock" /> Недавние</h2>{recent.map(requestRow)}</div>}
         {groups.map(([group, requests]) => (
           <div className="request-group" key={group}>
             <h2>{group}</h2>
-            {requests.map((summary) => (
-              <button
-                type="button"
-                className={`request-item ${selectedPath === summary.relative_path ? "selected" : ""}`}
-                key={summary.relative_path}
-                onClick={() => onSelectRequest(summary)}
-              >
-                <span className={`method method-${summary.request.method.toLowerCase()}`}>
-                  {summary.request.method}
-                </span>
-                <span>{summary.request.name}</span>
-              </button>
-            ))}
+            {requests.map(requestRow)}
           </div>
         ))}
       </nav>

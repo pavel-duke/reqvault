@@ -45,6 +45,7 @@ import { DiagnosticsDialog } from "./components/DiagnosticsDialog";
 import { Icon, ReqVaultMark } from "./components/Icon";
 import { CurlImportDialog } from "./components/CurlImportDialog";
 import { CollectionRunnerDialog } from "./components/CollectionRunnerDialog";
+import { CommandPalette, type PaletteAction } from "./components/CommandPalette";
 import { CookieDialog } from "./components/CookieDialog";
 import { HistoryDialog } from "./components/HistoryDialog";
 import { RequestEditor } from "./components/RequestEditor";
@@ -59,6 +60,7 @@ import { WorkspaceOverview } from "./components/WorkspaceOverview";
 import { StreamDialog } from "./components/StreamDialog";
 import { collectionFromPath, emptyRequest } from "./request-utils";
 import { draftStorageKey, sanitizeDraft, type StoredDraft } from "./draft-storage";
+import { addRecent, loadNavigation, saveNavigation } from "./navigation-storage";
 import type { CollectionRunOptions, CollectionRunReport, CookieSummary, EnvironmentFile, HistorySettings, HistorySummary, HttpError, HttpResponse, RequestFile, RequestSummary, SecurityReport, Theme, WorkspaceConfig, WorkspaceDiagnostics, WorkspaceSnapshot } from "./types";
 import "./App.css";
 
@@ -124,8 +126,11 @@ function App() {
   const [externalChange, setExternalChange] = useState(false);
   const [draftDirty, setDraftDirty] = useState(false);
   const [recoverableDraft, setRecoverableDraft] = useState<StoredDraft | null>(null);
+  const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
+  const [favoritePaths, setFavoritePaths] = useState<string[]>([]);
+  const [recentPaths, setRecentPaths] = useState<string[]>([]);
   const modalOpen = environmentsOpen || secretsOpen || historyOpen || cookiesOpen || compareOpen
-    || curlOpen || settingsOpen || runnerOpen || streamOpen || diagnosticsOpen;
+    || curlOpen || settingsOpen || runnerOpen || streamOpen || diagnosticsOpen || commandPaletteOpen;
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
@@ -237,6 +242,9 @@ function App() {
     setWorkspace(snapshot);
     window.localStorage.setItem(LAST_WORKSPACE_KEY, snapshot.root_path);
     setExternalChange(false);
+    const navigation = loadNavigation(snapshot.config.id, snapshot.requests.map((item) => item.relative_path));
+    setFavoritePaths(navigation.favorites);
+    setRecentPaths(navigation.recent);
     void getWorkspaceFingerprint(snapshot.root_path).then(setKnownFingerprint).catch(() => setKnownFingerprint(""));
     if (workspaceChanged) {
       const stored = window.localStorage.getItem(draftStorageKey(snapshot.config.id));
@@ -283,6 +291,20 @@ function App() {
     setResponse(null);
     setHttpError(null);
     setDraftDirty(false);
+    if (workspace) {
+      const nextRecent = addRecent(recentPaths, summary.relative_path);
+      setRecentPaths(nextRecent);
+      saveNavigation(workspace.config.id, { favorites: favoritePaths, recent: nextRecent });
+    }
+  }
+
+  function toggleFavorite(path: string) {
+    if (!workspace) return;
+    const nextFavorites = favoritePaths.includes(path)
+      ? favoritePaths.filter((item) => item !== path)
+      : [path, ...favoritePaths];
+    setFavoritePaths(nextFavorites);
+    saveNavigation(workspace.config.id, { favorites: nextFavorites, recent: recentPaths });
   }
 
   function newRequest() {
@@ -795,7 +817,7 @@ function App() {
     const onKeyDown = (event: globalThis.KeyboardEvent) => {
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "k") {
         event.preventDefault();
-        document.querySelector<HTMLInputElement>("#workspace-search")?.focus();
+        setCommandPaletteOpen(true);
       } else if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "s") {
         event.preventDefault();
         document.querySelector<HTMLButtonElement>("[data-shortcut='save-request']")?.click();
@@ -820,7 +842,23 @@ function App() {
     setError(null);
     setRecoverableDraft(null);
     setDraftDirty(false);
+    setCommandPaletteOpen(false);
+    setFavoritePaths([]);
+    setRecentPaths([]);
   }
+
+  const paletteActions: PaletteAction[] = workspace ? [
+    { id: "new-request", label: "Новый запрос", description: "Создать черновик запроса", keywords: "create", shortcut: "Alt N", icon: "file", onSelect: newRequest },
+    { id: "send-request", label: "Выполнить запрос", description: draft ? `${draft.method} ${draft.name}` : "Сначала открой запрос", keywords: "send run execute", shortcut: "Ctrl Enter", icon: "activity", onSelect: () => void sendCurrentRequest() },
+    { id: "search-tree", label: "Поиск в workspace", description: "Отфильтровать дерево запросов", keywords: "find filter", icon: "search", onSelect: () => window.requestAnimationFrame(() => document.querySelector<HTMLInputElement>("#workspace-search")?.focus()) },
+    { id: "environment", label: "Окружения", description: activeEnvironment ? `Активное: ${workspace.environments.find((item) => item.relative_path === activeEnvironment)?.environment.name ?? activeEnvironment}` : "Настроить переменные окружения", keywords: "environment env variables", icon: "settings", onSelect: () => { setEnvironmentError(null); setEnvironmentsOpen(true); } },
+    { id: "secrets", label: "Secret Vault", description: "Управление защищёнными значениями", keywords: "token password api key", icon: "key", onSelect: () => void openSecrets() },
+    { id: "diagnostics", label: "Диагностика workspace", description: "Проверить YAML, переменные, TLS и файлы", keywords: "errors health", icon: "shield", onSelect: () => void openDiagnostics() },
+    { id: "settings", label: "Production Guard", description: "Сетевые правила и разрешённые хосты", keywords: "settings security ssrf", icon: "settings", onSelect: () => { setSettingsError(null); setSettingsOpen(true); } },
+    { id: "import", label: "Импорт Postman / OpenAPI", description: "Добавить запросы из файла", keywords: "swagger collection", icon: "download", onSelect: () => void importFile() },
+    { id: "import-curl", label: "Импорт cURL", description: "Создать запрос из команды", keywords: "terminal paste", icon: "terminal", onSelect: () => { setCurlError(null); setCurlOpen(true); } },
+    { id: "history", label: "История ответов", description: "Открыть локальную opt-in историю", keywords: "recent response", icon: "clock", onSelect: () => void openHistory() },
+  ] : [];
 
   return (
     <main className="app-shell">
@@ -831,7 +869,7 @@ function App() {
           {workspace && <div className="workspace-breadcrumb"><span>/</span><strong>{workspace.config.name}</strong></div>}
         </div>
         <div className="topbar-actions">
-          {workspace && <button className="command-trigger" type="button" onClick={() => document.querySelector<HTMLInputElement>("#workspace-search")?.focus()}><Icon name="search" /><span>Быстрый поиск</span><kbd>Ctrl K</kbd></button>}
+          {workspace && <button className="command-trigger" type="button" onClick={() => setCommandPaletteOpen(true)}><Icon name="search" /><span>Команды и поиск</span><kbd>Ctrl K</kbd></button>}
           <span className="local-status"><Icon name="shield" />Локально</span>
           <button className="icon-button" type="button" onClick={() => setTheme(theme === "dark" ? "light" : "dark")} aria-label={theme === "dark" ? "Включить светлую тему" : "Включить тёмную тему"} title={theme === "dark" ? "Светлая тема" : "Тёмная тема"}><Icon name={theme === "dark" ? "sun" : "moon"} /></button>
         </div>
@@ -857,7 +895,10 @@ function App() {
             workspace={workspace}
             selectedPath={selectedPath}
             activeEnvironment={activeEnvironment}
+            favoritePaths={favoritePaths}
+            recentPaths={recentPaths}
             onSelectRequest={selectRequest}
+            onToggleFavorite={toggleFavorite}
             onNewRequest={newRequest}
             onEnvironmentChange={setActiveEnvironment}
             onEditEnvironments={() => { setEnvironmentError(null); setEnvironmentsOpen(true); }}
@@ -882,6 +923,17 @@ function App() {
 
       {workspace && environmentsOpen && (
         <EnvironmentDialog key={`${activeEnvironment}-${workspace.environments.length}`} environments={workspace.environments} activePath={activeEnvironment} busy={busy} error={environmentError} onSave={(path, environment) => void persistEnvironment(path, environment)} onDelete={(path) => void deleteSelectedEnvironment(path)} onClose={() => setEnvironmentsOpen(false)} />
+      )}
+
+      {workspace && commandPaletteOpen && (
+        <CommandPalette
+          open={commandPaletteOpen}
+          actions={paletteActions}
+          requests={workspace.requests}
+          recentPaths={recentPaths}
+          onOpenRequest={selectRequest}
+          onClose={() => setCommandPaletteOpen(false)}
+        />
       )}
 
       {workspace && secretsOpen && (

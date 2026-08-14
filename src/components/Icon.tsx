@@ -1,7 +1,7 @@
 import type { ReactNode, SVGProps } from "react";
 
 export type IconName = "archive" | "activity" | "clock" | "cookie" | "download" | "file" | "folder"
-  | "key" | "moon" | "pulse" | "search" | "settings" | "shield" | "sun" | "terminal" | "x";
+  | "key" | "moon" | "pulse" | "search" | "settings" | "shield" | "star" | "sun" | "terminal" | "x";
 
 const paths: Record<IconName, ReactNode> = {
   archive: <><path d="M4 7.5h16" /><path d="M5.5 7.5V19h13V7.5" /><path d="M3.5 4h17v3.5h-17z" /><path d="M9.5 12h5" /></>,
@@ -17,6 +17,7 @@ const paths: Record<IconName, ReactNode> = {
   search: <><circle cx="10.5" cy="10.5" r="6.5" /><path d="m15.5 15.5 5 5" /></>,
   settings: <><circle cx="12" cy="12" r="3" /><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1-2.8 2.8-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.6v.2h-4V21a1.7 1.7 0 0 0-1-1.6 1.7 1.7 0 0 0-1.9.3l-.1.1L4.2 17l.1-.1a1.7 1.7 0 0 0 .3-1.9A1.7 1.7 0 0 0 3 14H2.8v-4H3a1.7 1.7 0 0 0 1.6-1 1.7 1.7 0 0 0-.3-1.9L4.2 7 7 4.2l.1.1A1.7 1.7 0 0 0 9 4.6 1.7 1.7 0 0 0 10 3V2.8h4V3a1.7 1.7 0 0 0 1 1.6 1.7 1.7 0 0 0 1.9-.3l.1-.1L19.8 7l-.1.1a1.7 1.7 0 0 0-.3 1.9 1.7 1.7 0 0 0 1.6 1h.2v4H21a1.7 1.7 0 0 0-1.6 1Z" /></>,
   shield: <><path d="M12 3 5 6v5.5c0 4.4 2.8 7.5 7 9.5 4.2-2 7-5.1 7-9.5V6z" /><path d="m9 12 2 2 4-4" /></>,
+  star: <path d="m12 3 2.8 5.7 6.2.9-4.5 4.4 1.1 6.2-5.6-2.9-5.6 2.9 1.1-6.2L3 9.6l6.2-.9z" />,
   sun: <><circle cx="12" cy="12" r="3.5" /><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4" /></>,
   terminal: <><path d="m5 7 4 4-4 4M11 16h7" /></>,
   x: <><path d="m6 6 12 12M18 6 6 18" /></>,
